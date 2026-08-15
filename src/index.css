@@ -1,0 +1,117 @@
+:root {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  background: var(--app-background);
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+
+  --ui-font-size: 14px;
+  --font-ui: 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', '思源宋体', 'Songti SC', 'SimSun', serif;
+  --font-editor: 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', '思源宋体', 'Songti SC', 'SimSun', serif;
+  --font-note: 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', '思源宋体', 'Songti SC', 'SimSun', serif;
+  --ui-text-xs: max(10px, calc(var(--ui-font-size) * .72));
+  --ui-text-sm: max(11px, calc(var(--ui-font-size) * .84));
+  --ui-text-md: var(--ui-font-size);
+  --ui-text-lg: calc(var(--ui-font-size) * 1.18);
+  --ui-text-xl: calc(var(--ui-font-size) * 1.42);
+  --accent: #786aa3;
+  --accent-foreground: #ffffff;
+  --surface-opacity: 94%;
+  --background-dim: .32;
+  --background-blur: 0px;
+  --background-fit: cover;
+  --background-position: center;
+  --app-background-image: none;
+
+  --app-background: #f4f2ed;
+  --background-tint: #f4f2ed;
+  --sidebar-background: #ece9e2;
+  --surface-primary: #fcfbf8;
+  --surface-secondary: #f2efe9;
+  --surface-elevated: #fffefb;
+  --surface-hover: #f7f4ef;
+  --surface-active: #ece8f4;
+  --control-background: #fffefb;
+  --text-primary: #292724;
+  --text-secondary: #7b766e;
+  --text-tertiary: #9a948b;
+  --border-subtle: #ded9cf;
+  --border-strong: #c8c1b6;
+  --accent-soft: color-mix(in srgb, var(--accent) 13%, var(--surface-primary));
+  --accent-muted: color-mix(in srgb, var(--accent) 68%, var(--text-secondary));
+  --focus-ring: color-mix(in srgb, var(--accent) 72%, white);
+  --danger: #a85d62;
+  --danger-soft: #f6e9ea;
+  --warning: #98723c;
+  --warning-soft: #f4edde;
+  --success: #4f8062;
+  --success-soft: #e8f1eb;
+  --diff-insert: #4f8062;
+  --diff-insert-soft: #e8f1eb;
+  --diff-delete: #a85d62;
+  --diff-delete-soft: #f6e9ea;
+  --diff-replace: #98723c;
+  --diff-replace-soft: #f4edde;
+  --selection: #ddd6ea;
+  --shadow-soft: 0 8px 28px rgb(54 48 40 / .08);
+  --shadow-float: 0 16px 42px rgb(45 40 34 / .14);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --app-background: #242321;
+  --background-tint: #242321;
+  --sidebar-background: #292724;
+  --surface-primary: #2e2c29;
+  --surface-secondary: #34312e;
+  --surface-elevated: #3a3733;
+  --surface-hover: #373430;
+  --surface-active: #433d50;
+  --control-background: #35322f;
+  --text-primary: #eeeae3;
+  --text-secondary: #aaa49b;
+  --text-tertiary: #7f7971;
+  --border-subtle: #45413c;
+  --border-strong: #5c5650;
+  --accent-soft: color-mix(in srgb, var(--accent) 27%, var(--surface-primary));
+  --accent-muted: color-mix(in srgb, var(--accent) 76%, var(--text-primary));
+  --focus-ring: color-mix(in srgb, var(--accent) 80%, white);
+  --danger: #dc858a;
+  --danger-soft: #4a3234;
+  --warning: #d3a866;
+  --warning-soft: #493e2d;
+  --success: #84b293;
+  --success-soft: #2d4334;
+  --diff-insert: #83b193;
+  --diff-insert-soft: #304738;
+  --diff-delete: #dc858a;
+  --diff-delete-soft: #4d3336;
+  --diff-replace: #d3aa6b;
+  --diff-replace-soft: #4a3f2e;
+  --selection: #554c68;
+  --shadow-soft: 0 8px 28px rgb(0 0 0 / .16);
+  --shadow-float: 0 16px 42px rgb(0 0 0 / .28);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; min-width: 280px; height: 100%; margin: 0; overflow: hidden; }
+body { min-height: 100vh; font-family: var(--font-ui); font-size: var(--ui-font-size); }
+.note-window-root, .note-window-root body, .note-window-root #root { background: transparent; }
+button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+input, select, textarea { color: var(--text-primary); }
+::selection { background: var(--selection); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+[data-contrast='more'] { --border-subtle: var(--border-strong); }
+[data-contrast='more'] button:focus-visible,
+[data-contrast='more'] input:focus-visible,
+[data-contrast='more'] select:focus-visible,
+[data-contrast='more'] textarea:focus-visible { outline-width: 3px; outline-offset: 3px; }
+[data-reduce-motion='true'] *,
+[data-reduce-motion='true'] *::before,
+[data-reduce-motion='true'] *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }

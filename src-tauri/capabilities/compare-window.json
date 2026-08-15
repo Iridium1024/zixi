@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "compare-window",
+  "description": "独立文字比较窗口：同一比较会话、同步事件与窗口状态所需能力",
+  "local": true,
+  "windows": ["compare"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-minimize",
+    "core:window:allow-set-focus",
+    "core:window:allow-show",
+    "sql:default",
+    "sql:allow-execute",
+    "window-state:default"
+  ]
+}

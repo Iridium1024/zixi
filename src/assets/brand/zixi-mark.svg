@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="字隙双稿标记">
+  <path fill="#DDAFA9" d="M9 12.5h14.2c7 0 11.3 4.5 11.3 11.5v25.2c0 3.3-1 5.4-2.8 7.3-2.2-2.3-4.6-3.5-8.5-3.5H9a3 3 0 0 1-3-3V15.5a3 3 0 0 1 3-3Z"/>
+  <path fill="#F2D9D3" d="M55 12.5H40.8c-7 0-11.3 4.5-11.3 11.5v25.2c0 3.3 1 5.4 2.8 7.3 2.2-2.3 4.6-3.5 8.5-3.5H55a3 3 0 0 0 3-3V15.5a3 3 0 0 0-3-3Z"/>
+  <path fill="none" stroke="#5A514D" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.8" d="M9 12.5h14.2c7 0 11.3 4.5 11.3 11.5v25.2c0 3.3-1 5.4-2.8 7.3-2.2-2.3-4.6-3.5-8.5-3.5H9a3 3 0 0 1-3-3V15.5a3 3 0 0 1 3-3Zm46 0H40.8c-7 0-11.3 4.5-11.3 11.5v25.2c0 3.3 1 5.4 2.8 7.3 2.2-2.3 4.6-3.5 8.5-3.5H55a3 3 0 0 0 3-3V15.5a3 3 0 0 0-3-3Z"/>
+  <g fill="none" stroke="#5A514D" stroke-linecap="round" stroke-width="2.8">
+    <path d="M12 25h13M12 32h16M12 39h11"/>
+    <path d="M39 25h13M39 32h16M39 39h11"/>
+  </g>
+  <path fill="none" stroke="#B77370" stroke-linecap="round" stroke-width="2.8" d="M12 45h14M39 45h14"/>
+</svg>
