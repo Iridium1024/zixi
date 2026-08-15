@@ -2,7 +2,16 @@
   "name": "zixi-desktop",
   "private": true,
   "version": "0.1.0",
+  "description": "本地优先的文字差异审阅与桌面便签工具",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Iridium1024/zixi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Iridium1024/zixi/issues"
+  },
+  "homepage": "https://github.com/Iridium1024/zixi#readme",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +22,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b",
     "icons:generate": "tauri icon src-tauri/icons/zixi-icon.svg && tauri icon src-tauri/icons/zixi-icon-small.svg --output src-tauri/icons --png 16 --png 24 --png 32 --png 48 --png 64 && node scripts/build-windows-icon.mjs",
+    "release:stage": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-release-assets.ps1",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
     "tauri": "tauri"
   },

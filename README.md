@@ -10,6 +10,17 @@
 
 ![字隙设置界面：主题、本地背景图与字体管理](docs/screenshots/settings-appearance.png)
 
+## 下载与安装
+
+普通 Windows 用户无需安装 Node.js、Rust 或其他开发工具。请前往 [GitHub Releases](https://github.com/Iridium1024/zixi/releases/latest)，下载名称以 `Windows-x64-Setup.exe` 结尾的安装包并双击安装。
+
+- `Zixi-<版本>-Windows-x64-Setup.exe`：推荐普通用户使用。
+- `Zixi-<版本>-Windows-x64.msi`：供需要 MSI 的管理或批量部署环境使用。
+- `Source code (zip)` / `Source code (tar.gz)`：仅供开发者获取源码，不是可直接运行的软件。
+- `SHA256SUMS.txt`：用于核对安装包是否完整、是否与发布页提供的文件一致。
+
+当前公开构建面向 Windows 10/11 x64，尚未进行商业代码签名，因此 Windows SmartScreen 可能显示“未知发布者”。请只从本仓库 Releases 页面下载。安装升级或卸载程序不会主动删除 `%APPDATA%\com.zixi.desktop` 中的用户数据库与外观资源。
+
 ## 主要能力
 
 - 双栏文字比较：精确、审阅、宽松三种规则；上一处/下一处、统计、交换与同步滚动。
@@ -23,7 +34,7 @@
 - 比较正文：原文与修改稿共用 12–28px 的持久化字号和联动行高；界面字号、比较正文字号与便签正文字号彼此独立。
 - 桌面生命周期：单实例、主窗状态恢复、关闭到系统托盘、托盘新建便签与退出。
 
-## 开发运行
+## 从源码开发
 
 要求：
 

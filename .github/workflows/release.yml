@@ -1,0 +1,82 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    name: Build Windows x64 installers
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify release version
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoMatch = Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+          $cargoVersion = $cargoMatch.Matches[0].Groups[1].Value
+          $expectedTag = "v$packageVersion"
+
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Tag $env:GITHUB_REF_NAME does not match package version $packageVersion."
+          }
+          if ($tauriVersion -ne $packageVersion -or $cargoVersion -ne $packageVersion) {
+            throw "Version mismatch: package=$packageVersion, tauri=$tauriVersion, cargo=$cargoVersion."
+          }
+
+      - name: Run frontend quality gate
+        run: npm run check
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build NSIS and MSI bundles
+        run: npm run tauri -- build --bundles nsis,msi
+
+      - name: Stage release assets and checksums
+        shell: pwsh
+        run: ./scripts/prepare-release-assets.ps1
+
+      - name: Create or update draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $title = "字隙 Zixi $tag"
+          $assets = Get-ChildItem release-assets -File | ForEach-Object { $_.FullName }
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $assets --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw "Failed to upload release assets." }
+            gh release edit $tag --draft --title $title --notes-file .github/release-notes.md --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag $assets --verify-tag --draft --title $title --notes-file .github/release-notes.md --repo $env:GITHUB_REPOSITORY
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Failed to create or update the draft release." }
