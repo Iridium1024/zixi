@@ -4,6 +4,12 @@
 
 当前版本为第一阶段 MVP（0.1.0），技术栈为 Tauri 2、React、TypeScript、Vite、Monaco Editor、jsdiff 与 SQLite。
 
+## 界面预览
+
+![字隙文字对比界面：双栏对照原文与修改稿，差异处高亮标注](docs/screenshots/compare-view.png)
+
+![字隙设置界面：主题、本地背景图与字体管理](docs/screenshots/settings-appearance.png)
+
 ## 主要能力
 
 - 双栏文字比较：精确、审阅、宽松三种规则；上一处/下一处、统计、交换与同步滚动。
