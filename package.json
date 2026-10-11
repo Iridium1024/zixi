@@ -1,7 +1,7 @@
 {
   "name": "zixi-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "本地优先的文字差异审阅与桌面便签工具",
   "license": "MIT",
   "repository": {
@@ -23,6 +23,10 @@
     "typecheck": "tsc -b",
     "icons:generate": "tauri icon src-tauri/icons/zixi-icon.svg && tauri icon src-tauri/icons/zixi-icon-small.svg --output src-tauri/icons --png 16 --png 24 --png 32 --png 48 --png 64 && node scripts/build-windows-icon.mjs",
     "release:stage": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-release-assets.ps1",
+    "release:build": "npm run release:check && npm run tauri -- build --bundles nsis,msi && npm run release:stage && npm run release:verify",
+    "release:check": "node scripts/check-release-source.mjs",
+    "release:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-windows-package.ps1",
+    "release:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-portable.ps1",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
     "tauri": "tauri"
   },

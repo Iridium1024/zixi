@@ -1,6 +1,6 @@
 [package]
 name = "zixi"
-version = "0.1.0"
+version = "0.1.1"
 description = "本地优先的文字比较与桌面便签工具"
 authors = ["字隙 contributors"]
 license = "MIT"

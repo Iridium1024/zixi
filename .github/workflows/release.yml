@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build-windows:
-    name: Build Windows x64 installers
+    name: Build Windows x64 installers and portable ZIP
     runs-on: windows-latest
 
     steps:
@@ -52,6 +52,12 @@ jobs:
       - name: Run frontend quality gate
         run: npm run check
 
+      - name: Audit source upload and lockfile versions
+        run: npm run release:check
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
@@ -62,6 +68,10 @@ jobs:
         shell: pwsh
         run: ./scripts/prepare-release-assets.ps1
 
+      - name: Verify portable layout and shortcut creation
+        shell: pwsh
+        run: ./scripts/test-windows-package.ps1
+
       - name: Create or update draft release
         shell: pwsh
         env:
@@ -69,14 +79,26 @@ jobs:
         run: |
           $tag = $env:GITHUB_REF_NAME
           $title = "字隙 Zixi $tag"
-          $assets = Get-ChildItem release-assets -File | ForEach-Object { $_.FullName }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $assets = @(
+            "releases/v$version/Zixi-$version-Windows-x64-Setup.exe",
+            "releases/v$version/Zixi-$version-Windows-x64.msi",
+            "releases/v$version/Zixi-$version-Windows-x64-Portable.zip",
+            "releases/v$version/SHA256SUMS.txt"
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Missing asset: $asset" }
+          }
 
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft 2>$null
           if ($LASTEXITCODE -eq 0) {
+            if (-not ($existing | ConvertFrom-Json).isDraft) {
+              throw "Release $tag is already public. Create a new version instead of overwriting it."
+            }
             gh release upload $tag $assets --clobber --repo $env:GITHUB_REPOSITORY
             if ($LASTEXITCODE -ne 0) { throw "Failed to upload release assets." }
-            gh release edit $tag --draft --title $title --notes-file .github/release-notes.md --repo $env:GITHUB_REPOSITORY
+            gh release edit $tag --draft --title $title --notes-file "docs/releases/v$version.md" --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag $assets --verify-tag --draft --title $title --notes-file .github/release-notes.md --repo $env:GITHUB_REPOSITORY
+            gh release create $tag $assets --verify-tag --draft --title $title --notes-file "docs/releases/v$version.md" --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "Failed to create or update the draft release." }
