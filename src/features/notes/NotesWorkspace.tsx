@@ -34,8 +34,10 @@ import {
 } from './noteRepository'
 import { subscribeNoteEvents } from './noteEvents'
 import { executeIndependentWindowEntry, executeNewNoteEntry } from './noteEntryFlow'
-import { hideMainWindow, openNoteWindow } from './openNoteWindow'
+import { openNoteWindow } from './openNoteWindow'
+import { applyMainWindowOpenBehavior, type WindowBehaviorPreferences } from '../settings/windowBehavior'
 import { NoteSaveCoordinator, type CoordinatedSaveState } from './saveCoordinator'
+import { useSaveShortcut } from '../../lib/useSaveShortcut'
 import {
   retainExistingTrashSelection,
   selectFilteredTrashIds,
@@ -45,6 +47,7 @@ import type { NoteRecord, NoteRevision } from './types'
 
 interface NotesWorkspaceProps {
   appearance: AppearanceSettings
+  windowBehavior: WindowBehaviorPreferences
   trashMode?: boolean
   onStatusChange?: (status: string) => void
 }
@@ -57,7 +60,7 @@ const BUILTIN_FONT_OPTIONS = [
   { id: 'mono', family: "'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace", label: '等宽字体' },
 ]
 
-export function NotesWorkspace({ appearance, trashMode = false, onStatusChange }: NotesWorkspaceProps) {
+export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, onStatusChange }: NotesWorkspaceProps) {
   const [notes, setNotes] = useState<NoteRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<NoteRecord | null>(null)
@@ -72,6 +75,7 @@ export function NotesWorkspace({ appearance, trashMode = false, onStatusChange }
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedTrashIds, setSelectedTrashIds] = useState<Set<string>>(() => new Set())
   const draftRef = useRef<NoteRecord | null>(null)
+  const pendingCreatedIds = useRef(new Set<string>())
 
   useEffect(() => { draftRef.current = draft }, [draft])
 
@@ -185,15 +189,28 @@ export function NotesWorkspace({ appearance, trashMode = false, onStatusChange }
   }, [coordinator])
 
   function updateDraft(next: NoteRecord) {
+    pendingCreatedIds.current.delete(next.id)
     setDraft(next)
     draftRef.current = next
     if (!trashMode) coordinator.schedule(next)
   }
 
-  async function flushCurrent() {
+  const flushCurrent = useCallback(async () => {
     if (!draftRef.current || trashMode) return draftRef.current
     return coordinator.flush(draftRef.current)
-  }
+  }, [coordinator, trashMode])
+
+  useSaveShortcut(useCallback(async () => {
+    if (!draftRef.current || trashMode) return
+    try {
+      const saved = await flushCurrent()
+      if (saved) pendingCreatedIds.current.delete(saved.id)
+      onStatusChange?.('便签已保存')
+    } catch {
+      setSaveError('保存失败，草稿仍保留在编辑器中')
+      onStatusChange?.('便签保存失败，请处理后重试')
+    }
+  }, [flushCurrent, onStatusChange, trashMode]), !trashMode)
 
   async function selectNote(id: string) {
     if (trashMode && selectionMode) {
@@ -213,14 +230,15 @@ export function NotesWorkspace({ appearance, trashMode = false, onStatusChange }
     try {
       const note = await executeNewNoteEntry('notes-page', {
         create: createNote,
-        open: (value) => openNoteWindow(value.id, value.title),
-        hideMain: hideMainWindow,
+        open: (value) => openNoteWindow(value.id, value.title, true),
+        afterOpen: () => applyMainWindowOpenBehavior(windowBehavior.note.open),
       })
       setNotes((items) => [note, ...items])
       setSelectedId(note.id)
       setDraft(note)
       draftRef.current = note
       coordinator.setBaseline(note)
+      pendingCreatedIds.current.add(note.id)
       setSaveError('')
       onStatusChange?.(`${notes.length + 1} 张便签`)
     } catch {
@@ -231,14 +249,15 @@ export function NotesWorkspace({ appearance, trashMode = false, onStatusChange }
 
   async function openDraftWindow() {
     if (!draft) return
+    const createdFromNew = pendingCreatedIds.current.has(draft.id)
     try {
       await executeIndependentWindowEntry(async () => {
         const saved = await flushCurrent()
         if (!saved) throw new Error('没有可打开的便签')
         return saved
       }, {
-        open: (saved) => openNoteWindow(saved.id, saved.title),
-        hideMain: hideMainWindow,
+        open: (saved) => openNoteWindow(saved.id, saved.title, createdFromNew),
+        afterOpen: () => applyMainWindowOpenBehavior(windowBehavior.note.open),
       })
       setSaveError('')
     } catch (error) {

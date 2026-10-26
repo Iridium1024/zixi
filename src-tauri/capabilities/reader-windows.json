@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "reader-windows",
+  "description": "独立阅读窗口：进度同步、拖动、置顶、临时鼠标穿透与窗口控制所需的最小能力",
+  "local": true,
+  "windows": ["reader-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-show",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "sql:default",
+    "sql:allow-execute",
+    "window-state:default"
+  ]
+}

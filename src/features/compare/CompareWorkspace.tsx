@@ -18,6 +18,8 @@ import { useDiffWorker } from './useDiffWorker'
 import { MONACO_DARK_THEME, MONACO_LIGHT_THEME } from './monacoThemes'
 import { createBoundedLayoutScheduler, layoutEditorFromContainer } from './responsiveLayout'
 import { monacoWrappingOptions } from './monacoOptions'
+import { useSaveShortcut } from '../../lib/useSaveShortcut'
+import { applyMainWindowCloseBehavior, type MainWindowCloseBehavior } from '../settings/windowBehavior'
 
 type Monaco = typeof import('monaco-editor')
 type MonacoEditor = import('monaco-editor').editor.IStandaloneCodeEditor
@@ -39,6 +41,7 @@ interface CompareWorkspaceProps {
   preferences: ComparePreferences
   standalone?: boolean
   onOpenStandalone?: () => void
+  mainWindowCloseBehavior?: MainWindowCloseBehavior
 }
 
 function optionsFor(change: DiffChange, side: 'left' | 'right') {
@@ -60,7 +63,7 @@ function makeDecorations(editor: MonacoEditor | null, changes: DiffChange[], sid
 
 type CloseDecision = { status: 'saving' } | Exclude<CompareWindowCloseResult, { status: 'clean' | 'saved' }>
 
-export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFamily, fontMeasureKey, editorFontSize, preferences, standalone = false, onOpenStandalone }: CompareWorkspaceProps) {
+export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFamily, fontMeasureKey, editorFontSize, preferences, standalone = false, onOpenStandalone, mainWindowCloseBehavior = 'keep' }: CompareWorkspaceProps) {
   const [left, setLeft] = useState(SAMPLE_LEFT)
   const [right, setRight] = useState(SAMPLE_RIGHT)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -149,6 +152,17 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
     }
   }, [preferences.rule.preset])
 
+  useSaveShortcut(useCallback(async () => {
+    const result = await saveCurrent()
+    if (result.status === 'saved') {
+      setSaveNotice('已保存')
+      onStatusChange?.('比较会话已保存')
+    } else if (result.status === 'clean') {
+      setSaveNotice('没有需要保存的更改')
+      onStatusChange?.('没有需要保存的更改')
+    }
+  }, [onStatusChange, saveCurrent]))
+
   useEffect(() => {
     if (!hydrated.current || !dirty.current || isCalculating) return
     window.clearTimeout(saveTimer.current)
@@ -170,9 +184,10 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
   }, [])
 
   const destroyStandaloneWindow = useCallback(async () => {
+    await applyMainWindowCloseBehavior(mainWindowCloseBehavior)
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     await getCurrentWindow().destroy()
-  }, [])
+  }, [mainWindowCloseBehavior])
 
   useEffect(() => {
     if (!standalone || !isTauriRuntime()) return
@@ -187,7 +202,7 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
         const request = coordinateCompareWindowClose({
           hasUnsavedChanges: () => dirty.current,
           save: saveCurrent,
-          destroy: () => current.destroy(),
+          destroy: destroyStandaloneWindow,
         }).then((result) => {
           if (result.status === 'conflict' || result.status === 'failed') setCloseDecision(result)
         }).finally(() => {
@@ -199,7 +214,7 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
       else dispose = unlisten
     }).catch(() => setSaveNotice('独立窗口关闭监听初始化失败；当前内容仍会继续自动保存。'))
     return () => { cancelled = true; dispose?.() }
-  }, [saveCurrent, standalone])
+  }, [destroyStandaloneWindow, saveCurrent, standalone])
 
   const refreshEditorLayout = useCallback(() => {
     layoutEditorFromContainer(leftEditor.current, leftEditorHost.current)

@@ -5,7 +5,7 @@ export type NewNoteEntrySource = 'tray' | 'sidebar' | 'notes-page'
 interface EntryDependencies {
   create(): Promise<NoteRecord>
   open(note: NoteRecord): Promise<unknown>
-  hideMain(): Promise<void>
+  afterOpen(): Promise<void>
 }
 
 export async function executeNewNoteEntry(
@@ -15,16 +15,16 @@ export async function executeNewNoteEntry(
   const note = await dependencies.create()
   if (source === 'notes-page') return note
   await dependencies.open(note)
-  if (source === 'sidebar') await dependencies.hideMain()
+  await dependencies.afterOpen()
   return note
 }
 
 export async function executeIndependentWindowEntry(
   saveSelected: () => Promise<NoteRecord>,
-  dependencies: Pick<EntryDependencies, 'open' | 'hideMain'>,
+  dependencies: Pick<EntryDependencies, 'open' | 'afterOpen'>,
 ): Promise<NoteRecord> {
   const saved = await saveSelected()
   await dependencies.open(saved)
-  await dependencies.hideMain()
+  await dependencies.afterOpen()
   return saved
 }

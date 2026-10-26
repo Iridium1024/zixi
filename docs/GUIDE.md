@@ -2,7 +2,7 @@
 
 字隙是一个面向日常办公的本地优先桌面工具。它把原文与修改文并排展示，以确定性规则高亮新增、删除和替换内容；同时提供可独立悬浮的桌面便签、自动保存、历史版本、回收站、样式定制和多格式导出。
 
-当前本地待发布版本为 0.1.1，技术栈为 Tauri 2、React、TypeScript、Vite、Monaco Editor、jsdiff 与 SQLite。线上可用版本以 GitHub Releases 为准。
+当前本地待发布版本为 0.2.0，技术栈为 Tauri 2、React、TypeScript、Vite、Monaco Editor、jsdiff 与 SQLite。线上可用版本以 GitHub Releases 为准。
 
 ## 界面预览
 

@@ -11,39 +11,39 @@ function dependencies() {
   return {
     create: vi.fn(async () => note),
     open: vi.fn(async () => ({ created: true })),
-    hideMain: vi.fn(async () => undefined),
+    afterOpen: vi.fn(async () => undefined),
   }
 }
 
 describe('note entry flow', () => {
-  it('tray creates a float without hiding or changing main state', async () => {
+  it('tray creates a float and applies the configured main-window behavior', async () => {
     const deps = dependencies()
     await executeNewNoteEntry('tray', deps)
     expect(deps.open).toHaveBeenCalledOnce()
-    expect(deps.hideMain).not.toHaveBeenCalled()
+    expect(deps.afterOpen).toHaveBeenCalledOnce()
   })
 
   it('sidebar hides main only after the floating window opens', async () => {
     const calls: string[] = []
     const deps = dependencies()
     deps.open.mockImplementation(async () => { calls.push('open'); return { created: true } })
-    deps.hideMain.mockImplementation(async () => { calls.push('hide') })
+    deps.afterOpen.mockImplementation(async () => { calls.push('after-open') })
     await executeNewNoteEntry('sidebar', deps)
-    expect(calls).toEqual(['open', 'hide'])
+    expect(calls).toEqual(['open', 'after-open'])
   })
 
   it('never hides main when opening a sidebar float fails', async () => {
     const deps = dependencies()
     deps.open.mockRejectedValue(new Error('window failed'))
     await expect(executeNewNoteEntry('sidebar', deps)).rejects.toThrow('window failed')
-    expect(deps.hideMain).not.toHaveBeenCalled()
+    expect(deps.afterOpen).not.toHaveBeenCalled()
   })
 
   it('notes page plus creates in main without opening a float', async () => {
     const deps = dependencies()
     await executeNewNoteEntry('notes-page', deps)
     expect(deps.open).not.toHaveBeenCalled()
-    expect(deps.hideMain).not.toHaveBeenCalled()
+    expect(deps.afterOpen).not.toHaveBeenCalled()
   })
 
   it('independent entry saves, opens, then hides in order', async () => {
@@ -52,9 +52,9 @@ describe('note entry flow', () => {
       async () => { calls.push('save'); return note },
       {
         open: async () => { calls.push('open') },
-        hideMain: async () => { calls.push('hide') },
+        afterOpen: async () => { calls.push('after-open') },
       },
     )
-    expect(calls).toEqual(['save', 'open', 'hide'])
+    expect(calls).toEqual(['save', 'open', 'after-open'])
   })
 })

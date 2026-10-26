@@ -98,7 +98,8 @@
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; min-width: 280px; height: 100%; margin: 0; overflow: hidden; }
 body { min-height: 100vh; font-family: var(--font-ui); font-size: var(--ui-font-size); }
-.note-window-root, .note-window-root body, .note-window-root #root { background: transparent; }
+.note-window-root, .note-window-root body, .note-window-root #root { min-width: 0; background: transparent; }
+.reader-window-root, .reader-window-root body, .reader-window-root #root { min-width: 0; background: transparent; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 input, select, textarea { color: var(--text-primary); }

@@ -1,6 +1,8 @@
 mod asset_validation;
 
 use asset_validation::{detect_background, detect_font, extension_matches};
+use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
+use encoding_rs::{Encoding, UTF_16BE, UTF_16LE, UTF_8};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -19,11 +21,14 @@ use tauri::{
     Emitter, Manager, Theme, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_sql::{Migration, MigrationKind};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 const BACKGROUND_BYTE_LIMIT: u64 = 24 * 1024 * 1024;
 const FONT_BYTE_LIMIT: u64 = 12 * 1024 * 1024;
+const TEXT_BOOK_BYTE_LIMIT: u64 = 32 * 1024 * 1024;
+const TEXT_PREVIEW_CHARACTER_LIMIT: usize = 4_000;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Dwm::{
@@ -35,6 +40,29 @@ use windows::Win32::Graphics::Dwm::{
 struct PendingTrayRequests {
     next_id: AtomicU64,
     pending: Mutex<Vec<u64>>,
+}
+
+#[derive(Default)]
+struct ReaderWindowRegistry {
+    last_active: Mutex<Option<String>>,
+}
+
+#[derive(Default)]
+struct ReaderShortcutRegistry {
+    registered: Mutex<Option<String>>,
+}
+
+impl ReaderWindowRegistry {
+    fn mark_active(&self, label: &str) {
+        *self.last_active.lock().expect("reader registry poisoned") = Some(label.to_string());
+    }
+
+    fn last_active(&self) -> Option<String> {
+        self.last_active
+            .lock()
+            .expect("reader registry poisoned")
+            .clone()
+    }
 }
 
 impl PendingTrayRequests {
@@ -167,11 +195,47 @@ struct ImportedFontRecord {
     style: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TextBookCandidate {
+    source_path: String,
+    source_file_name: String,
+    title: String,
+    byte_size: u64,
+    detected_encoding: String,
+    preview: String,
+    had_decoding_errors: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReaderBookRecord {
+    id: String,
+    title: String,
+    source_file_name: String,
+    stored_path: String,
+    encoding: String,
+    byte_size: u64,
+    content_hash: String,
+    imported_at: String,
+    updated_at: String,
+    last_opened_at: Option<String>,
+    progress: f64,
+    locator_json: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReaderBookContent {
+    book: ReaderBookRecord,
+    content: String,
+}
+
 fn require_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() == "main" {
         Ok(())
     } else {
-        Err("只有主窗口可以导入或删除本地外观资源".into())
+        Err("只有主窗口可以管理本地资源".into())
     }
 }
 
@@ -684,6 +748,34 @@ async fn permanently_delete_note_atomic(
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn discard_new_note_atomic(
+    app: tauri::AppHandle,
+    note_id: String,
+    expected_updated_at: String,
+) -> Result<bool, String> {
+    let path = note_database_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut connection = open_note_database(&path)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let deleted = transaction
+            .execute(
+                "DELETE FROM notes
+                 WHERE id = ?1 AND updated_at = ?2 AND deleted_at IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM note_revisions WHERE note_id = ?1)",
+                params![note_id, expected_updated_at],
+            )
+            .map_err(|error| error.to_string())?
+            == 1;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(deleted)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 fn normalized_batch_note_ids(note_ids: Vec<String>) -> Vec<String> {
     let mut normalized = note_ids
         .into_iter()
@@ -893,6 +985,337 @@ fn import_font_file(app: &tauri::AppHandle, source: &Path) -> Result<ImportedFon
     })
 }
 
+fn detect_text_encoding(bytes: &[u8]) -> &'static Encoding {
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        return UTF_8;
+    }
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        return UTF_16LE;
+    }
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        return UTF_16BE;
+    }
+    if std::str::from_utf8(bytes).is_ok() {
+        return UTF_8;
+    }
+    let mut detector = EncodingDetector::new(Iso2022JpDetection::Allow);
+    detector.feed(bytes, true);
+    detector.guess(None, Utf8Detection::Allow)
+}
+
+fn resolve_text_encoding(label: Option<&str>, bytes: &[u8]) -> Result<&'static Encoding, String> {
+    match label.filter(|value| !value.trim().is_empty() && *value != "auto") {
+        Some(value) => Encoding::for_label(value.trim().as_bytes())
+            .ok_or_else(|| format!("不支持的文字编码：{value}")),
+        None => Ok(detect_text_encoding(bytes)),
+    }
+}
+
+fn text_book_title(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("未命名书籍")
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(120)
+        .collect()
+}
+
+fn inspect_text_book(
+    source: &Path,
+    encoding_label: Option<&str>,
+) -> Result<TextBookCandidate, String> {
+    let (source_file_name, extension) = source_parts(source)?;
+    if extension != "txt" {
+        return Err("基础阅读器当前仅支持 TXT 文件".into());
+    }
+    let bytes = read_limited(source, TEXT_BOOK_BYTE_LIMIT, "TXT 书籍")?;
+    let encoding = resolve_text_encoding(encoding_label, &bytes)?;
+    let (decoded, _, had_decoding_errors) = encoding.decode(&bytes);
+    let preview = decoded.chars().take(TEXT_PREVIEW_CHARACTER_LIMIT).collect();
+    Ok(TextBookCandidate {
+        source_path: source.to_string_lossy().into_owned(),
+        source_file_name,
+        title: text_book_title(source),
+        byte_size: bytes.len() as u64,
+        detected_encoding: encoding.name().to_string(),
+        preview,
+        had_decoding_errors,
+    })
+}
+
+fn managed_book_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|root| root.join("reader").join("books"))
+        .map_err(|error| error.to_string())
+}
+
+fn reader_book_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReaderBookRecord> {
+    Ok(ReaderBookRecord {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        source_file_name: row.get(2)?,
+        stored_path: row.get(3)?,
+        encoding: row.get(4)?,
+        byte_size: row.get::<_, i64>(5)?.max(0) as u64,
+        content_hash: row.get(6)?,
+        imported_at: row.get(7)?,
+        updated_at: row.get(8)?,
+        last_opened_at: row.get(9)?,
+        progress: row.get::<_, f64>(10)?.clamp(0.0, 1.0),
+        locator_json: row.get(11)?,
+    })
+}
+
+const READER_BOOK_SELECT: &str = r#"
+    SELECT b.id, b.title, b.source_file_name, b.stored_path, b.encoding,
+           b.byte_size, b.content_hash, b.imported_at, b.updated_at,
+           b.last_opened_at, COALESCE(p.progress, 0.0), p.locator_json
+    FROM reader_books b
+    LEFT JOIN reader_progress p ON p.book_id = b.id
+"#;
+
+#[tauri::command]
+async fn pick_text_book_candidate(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<TextBookCandidate>, String> {
+    require_main_window(&window)?;
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("导入 TXT 书籍")
+        .add_filter("TXT 文本", &["txt"])
+        .blocking_pick_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|_| "无法读取文件选择器返回的路径".to_string())?;
+    inspect_text_book(&path, None).map(Some)
+}
+
+#[tauri::command]
+async fn preview_text_book(
+    window: tauri::WebviewWindow,
+    source_path: String,
+    encoding: String,
+) -> Result<TextBookCandidate, String> {
+    require_main_window(&window)?;
+    inspect_text_book(Path::new(&source_path), Some(&encoding))
+}
+
+#[tauri::command]
+async fn import_text_book(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    source_path: String,
+    encoding: String,
+) -> Result<ReaderBookRecord, String> {
+    require_main_window(&window)?;
+    let source = PathBuf::from(source_path);
+    let bytes = read_limited(&source, TEXT_BOOK_BYTE_LIMIT, "TXT 书籍")?;
+    let (source_file_name, extension) = source_parts(&source)?;
+    if extension != "txt" {
+        return Err("基础阅读器当前仅支持 TXT 文件".into());
+    }
+    let selected_encoding = resolve_text_encoding(Some(&encoding), &bytes)?;
+    let (decoded, _, had_errors) = selected_encoding.decode(&bytes);
+    if had_errors {
+        return Err("当前编码仍包含无法解码的字节，请返回预览并更换编码".into());
+    }
+    let normalized = decoded.replace("\r\n", "\n").replace('\r', "\n");
+    let content_hash = asset_hash(normalized.as_bytes());
+    let id = format!("book-{content_hash}");
+    let directory = managed_book_dir(&app)?;
+    fs::create_dir_all(&directory).map_err(|_| "无法创建阅读器书库目录".to_string())?;
+    let destination = directory.join(format!("{id}.txt"));
+    if !destination.exists() {
+        let temporary = directory.join(format!("{id}.tmp"));
+        fs::write(&temporary, normalized.as_bytes()).map_err(|_| "无法写入书籍副本".to_string())?;
+        fs::rename(&temporary, &destination).map_err(|_| "无法完成书籍副本写入".to_string())?;
+    }
+
+    let database_path = note_database_path(&app)?;
+    let title = text_book_title(&source);
+    let stored_path = destination.to_string_lossy().into_owned();
+    let encoding_name = selected_encoding.name().to_string();
+    let byte_size = normalized.len() as i64;
+    tauri::async_runtime::spawn_blocking(move || {
+        let connection = open_note_database(&database_path)?;
+        connection.execute(
+            r#"INSERT INTO reader_books (
+                   id, title, source_file_name, stored_path, encoding, byte_size,
+                   content_hash, imported_at, updated_at, last_opened_at
+               ) VALUES (
+                   ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                   strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL
+               )
+               ON CONFLICT(id) DO UPDATE SET
+                   title = excluded.title,
+                   source_file_name = excluded.source_file_name,
+                   stored_path = excluded.stored_path,
+                   encoding = excluded.encoding,
+                   byte_size = excluded.byte_size,
+                   updated_at = excluded.updated_at"#,
+            params![id, title, source_file_name, stored_path, encoding_name, byte_size, content_hash],
+        ).map_err(|error| error.to_string())?;
+        connection.execute(
+            "INSERT OR IGNORE INTO reader_progress (book_id, progress, updated_at) VALUES (?1, 0.0, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+            params![id],
+        ).map_err(|error| error.to_string())?;
+        connection.query_row(
+            &format!("{READER_BOOK_SELECT} WHERE b.id = ?1"),
+            params![id],
+            reader_book_from_row,
+        ).map_err(|error| error.to_string())
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn list_reader_books(app: tauri::AppHandle) -> Result<Vec<ReaderBookRecord>, String> {
+    let database_path = note_database_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let connection = open_note_database(&database_path)?;
+        let mut statement = connection
+            .prepare(&format!(
+                "{READER_BOOK_SELECT} ORDER BY COALESCE(b.last_opened_at, b.imported_at) DESC"
+            ))
+            .map_err(|error| error.to_string())?;
+        let books = statement
+            .query_map([], reader_book_from_row)
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        Ok(books)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn load_reader_book_content(
+    app: tauri::AppHandle,
+    book_id: String,
+) -> Result<ReaderBookContent, String> {
+    let database_path = note_database_path(&app)?;
+    let root = managed_book_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let connection = open_note_database(&database_path)?;
+        connection.execute(
+            "UPDATE reader_books SET last_opened_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+            params![book_id],
+        ).map_err(|error| error.to_string())?;
+        let book = connection.query_row(
+            &format!("{READER_BOOK_SELECT} WHERE b.id = ?1"),
+            params![book_id],
+            reader_book_from_row,
+        ).optional().map_err(|error| error.to_string())?
+            .ok_or_else(|| "书库中不存在这本书".to_string())?;
+        fs::create_dir_all(&root).map_err(|_| "无法访问阅读器书库目录".to_string())?;
+        let canonical_root = root.canonicalize().map_err(|_| "无法验证阅读器书库目录".to_string())?;
+        let target = PathBuf::from(&book.stored_path)
+            .canonicalize().map_err(|_| "书籍副本已经丢失".to_string())?;
+        if !target.starts_with(&canonical_root) || !target.is_file() {
+            return Err("拒绝读取阅读器书库目录之外的文件".into());
+        }
+        let content = fs::read_to_string(target).map_err(|_| "无法读取书籍副本".to_string())?;
+        Ok(ReaderBookContent { book, content })
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn save_reader_progress(
+    app: tauri::AppHandle,
+    book_id: String,
+    progress: f64,
+    locator_json: String,
+) -> Result<(), String> {
+    if !progress.is_finite() {
+        return Err("阅读进度无效".into());
+    }
+    let database_path = note_database_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let connection = open_note_database(&database_path)?;
+        connection
+            .execute(
+                r#"INSERT INTO reader_progress (book_id, progress, updated_at, locator_json)
+               VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?3)
+               ON CONFLICT(book_id) DO UPDATE SET
+                   progress = excluded.progress,
+                   updated_at = excluded.updated_at,
+                   locator_json = excluded.locator_json"#,
+                params![book_id, progress.clamp(0.0, 1.0), locator_json],
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn delete_reader_book(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    book_id: String,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    let database_path = note_database_path(&app)?;
+    let root = managed_book_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut connection = open_note_database(&database_path)?;
+        let stored_path: Option<String> = connection
+            .query_row(
+                "SELECT stored_path FROM reader_books WHERE id = ?1",
+                params![book_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let stored_path = stored_path.ok_or_else(|| "书库中不存在这本书".to_string())?;
+        fs::create_dir_all(&root).map_err(|_| "无法访问阅读器书库目录".to_string())?;
+        let canonical_root = root
+            .canonicalize()
+            .map_err(|_| "无法验证阅读器书库目录".to_string())?;
+        let target = PathBuf::from(stored_path);
+        let (canonical_target, backup) = if target.exists() {
+            let canonical_target = target
+                .canonicalize()
+                .map_err(|_| "无法验证书籍副本".to_string())?;
+            if !canonical_target.starts_with(&canonical_root) || !canonical_target.is_file() {
+                return Err("拒绝删除阅读器书库目录之外的文件".into());
+            }
+            let backup =
+                fs::read(&canonical_target).map_err(|_| "无法读取待删除的书籍副本".to_string())?;
+            (Some(canonical_target), Some(backup))
+        } else {
+            (None, None)
+        };
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute("DELETE FROM reader_books WHERE id = ?1", params![book_id])
+            .map_err(|error| error.to_string())?;
+        if let Some(path) = canonical_target.as_ref() {
+            fs::remove_file(path).map_err(|_| "无法删除应用管理的书籍副本".to_string())?;
+        }
+        if let Err(error) = transaction.commit() {
+            if let (Some(path), Some(bytes)) = (canonical_target.as_ref(), backup.as_ref()) {
+                let _ = fs::write(path, bytes);
+            }
+            return Err(error.to_string());
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 async fn pick_background_asset(
     app: tauri::AppHandle,
@@ -966,12 +1389,14 @@ async fn open_note_window(
     app: tauri::AppHandle,
     note_id: String,
     title: String,
+    created_from_new: bool,
 ) -> Result<OpenNoteWindowResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let app_for_window = app.clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         app.run_on_main_thread(move || {
-            let result = create_or_show_note_window(app_for_window, note_id, title);
+            let result =
+                create_or_show_note_window(app_for_window, note_id, title, created_from_new);
             let _ = sender.send(result);
         })
         .map_err(|error| error.to_string())?;
@@ -984,11 +1409,39 @@ async fn open_note_window(
 }
 
 #[tauri::command]
-fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+fn set_main_window_state(app: tauri::AppHandle, action: String) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "主窗口不存在".to_string())?;
-    window.hide().map_err(|error| error.to_string())
+    match action.as_str() {
+        "minimize" => {
+            window.show().map_err(|error| error.to_string())?;
+            window.minimize().map_err(|error| error.to_string())
+        }
+        "hide" => window.hide().map_err(|error| error.to_string()),
+        _ => Err("不支持的主窗口状态".to_string()),
+    }
+}
+
+#[tauri::command]
+fn restore_main_window_after_independent_close(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<(), String> {
+    let caller_label = window.label();
+    let another_independent_window_is_visible =
+        app.webview_windows().iter().any(|(label, item)| {
+            label != "main"
+                && label != caller_label
+                && (label == "compare"
+                    || label.starts_with("note-")
+                    || label.starts_with("reader-"))
+                && item.is_visible().unwrap_or(false)
+        });
+    if !another_independent_window_is_visible {
+        show_main_window(&app);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1005,6 +1458,7 @@ fn create_or_show_note_window(
     app: tauri::AppHandle,
     note_id: String,
     title: String,
+    created_from_new: bool,
 ) -> Result<OpenNoteWindowResult, String> {
     let safe_id: String = note_id
         .chars()
@@ -1024,7 +1478,8 @@ fn create_or_show_note_window(
         return Ok(OpenNoteWindowResult { created: false });
     }
 
-    let route = format!("?window=note&id={note_id}");
+    let new_query = if created_from_new { "&new=1" } else { "" };
+    let route = format!("?window=note&id={note_id}{new_query}");
     let url = if cfg!(debug_assertions) {
         WebviewUrl::External(
             tauri::Url::parse(&format!("http://localhost:5173/{route}"))
@@ -1033,7 +1488,7 @@ fn create_or_show_note_window(
     } else {
         WebviewUrl::App(format!("index.html{route}").into())
     };
-    let window = WebviewWindowBuilder::new(&app, &label, url)
+    let builder = WebviewWindowBuilder::new(&app, &label, url)
         .title(title)
         .inner_size(380.0, 420.0)
         .min_inner_size(260.0, 220.0)
@@ -1041,10 +1496,11 @@ fn create_or_show_note_window(
         .always_on_top(true)
         .resizable(true)
         .center()
-        .visible(true)
-        .transparent(true)
-        .build()
-        .map_err(|error| error.to_string())?;
+        .visible(false)
+        .transparent(true);
+    #[cfg(target_os = "windows")]
+    let builder = builder.no_redirection_bitmap(true);
+    let window = builder.build().map_err(|error| error.to_string())?;
 
     let restorable = StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED;
     let _ = window.restore_state(restorable);
@@ -1126,6 +1582,155 @@ fn create_or_show_compare_window(app: tauri::AppHandle) -> Result<OpenCompareWin
     window.set_focus().map_err(|error| error.to_string())?;
     schedule_acceptance_exit_if_requested(&app);
     Ok(OpenCompareWindowResult { created: true })
+}
+
+#[tauri::command]
+async fn open_reader_window(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    book_id: String,
+    title: String,
+    always_on_top: bool,
+) -> Result<OpenCompareWindowResult, String> {
+    require_main_window(&window)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let app_for_window = app.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        app.run_on_main_thread(move || {
+            let result =
+                create_or_show_reader_window(app_for_window, book_id, title, always_on_top);
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+        receiver
+            .recv_timeout(Duration::from_secs(8))
+            .map_err(|_| "独立阅读窗口创建超时".to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn create_or_show_reader_window(
+    app: tauri::AppHandle,
+    book_id: String,
+    title: String,
+    always_on_top: bool,
+) -> Result<OpenCompareWindowResult, String> {
+    if book_id.is_empty()
+        || !book_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    {
+        return Err("书籍标识无效".into());
+    }
+    let label = format!("reader-{book_id}");
+    if let Some(window) = app.get_webview_window(&label) {
+        app.state::<ReaderWindowRegistry>().mark_active(&label);
+        window.show().map_err(|error| error.to_string())?;
+        window.unminimize().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(OpenCompareWindowResult { created: false });
+    }
+    let route = format!("?window=reader&id={book_id}");
+    let url = if cfg!(debug_assertions) {
+        WebviewUrl::External(
+            tauri::Url::parse(&format!("http://localhost:5173/{route}"))
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        WebviewUrl::App(format!("index.html{route}").into())
+    };
+    let builder = WebviewWindowBuilder::new(&app, &label, url)
+        .title(format!("字隙 · {title}"))
+        .inner_size(980.0, 760.0)
+        .min_inner_size(620.0, 440.0)
+        .decorations(false)
+        .always_on_top(always_on_top)
+        .resizable(true)
+        .center()
+        .visible(false)
+        .transparent(true);
+    #[cfg(target_os = "windows")]
+    let builder = builder.no_redirection_bitmap(true);
+    let window = builder.build().map_err(|error| error.to_string())?;
+    app.state::<ReaderWindowRegistry>().mark_active(&label);
+    let restorable = StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED;
+    let _ = window.restore_state(restorable);
+    let window_for_state = window.clone();
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            WindowEvent::CloseRequested { .. } | WindowEvent::Moved(_) | WindowEvent::Resized(_)
+        ) {
+            let _ = window_for_state.app_handle().save_window_state(restorable);
+        }
+    });
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(OpenCompareWindowResult { created: true })
+}
+
+#[tauri::command]
+fn mark_reader_window_active(
+    state: tauri::State<'_, ReaderWindowRegistry>,
+    window: tauri::WebviewWindow,
+) -> Result<(), String> {
+    if !window.label().starts_with("reader-") {
+        return Err("只有独立阅读窗口可以更新阅读器活动状态".into());
+    }
+    state.mark_active(window.label());
+    Ok(())
+}
+
+fn restore_last_reader_window(app: &tauri::AppHandle) {
+    let state = app.state::<ReaderWindowRegistry>();
+    let target = state
+        .last_active()
+        .and_then(|label| app.get_webview_window(&label));
+    if let Some(window) = target {
+        let _ = window.emit("reader-restore-requested", ());
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
+fn set_reader_restore_shortcut(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, ReaderShortcutRegistry>,
+    shortcut: String,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("只有主窗口可以修改全局恢复快捷键".into());
+    }
+    if !matches!(
+        shortcut.as_str(),
+        "Control+Alt+B" | "Control+Shift+B" | "Alt+Shift+B"
+    ) {
+        return Err("不支持的全局恢复快捷键".into());
+    }
+
+    let mut registered = state
+        .registered
+        .lock()
+        .map_err(|_| "快捷键状态不可用".to_string())?;
+    if registered.as_deref() == Some(shortcut.as_str()) {
+        return Ok(());
+    }
+
+    app.global_shortcut()
+        .register(shortcut.as_str())
+        .map_err(|error| format!("组合键可能已被其它程序占用：{error}"))?;
+    if let Some(previous) = registered.as_deref() {
+        if let Err(error) = app.global_shortcut().unregister(previous) {
+            let _ = app.global_shortcut().unregister(shortcut.as_str());
+            return Err(format!("旧快捷键注销失败：{error}"));
+        }
+    }
+    *registered = Some(shortcut);
+    Ok(())
 }
 
 fn schedule_app_exit(app: tauri::AppHandle) {
@@ -1278,6 +1883,40 @@ fn database_migrations() -> Vec<Migration> {
             sql: "ALTER TABLE comparisons ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "create managed text reader library and progress",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS reader_books (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    title TEXT NOT NULL,
+                    source_file_name TEXT NOT NULL,
+                    stored_path TEXT NOT NULL,
+                    encoding TEXT NOT NULL,
+                    byte_size INTEGER NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    imported_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_opened_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS reader_books_recent_idx
+                    ON reader_books(last_opened_at DESC, imported_at DESC);
+
+                CREATE TABLE IF NOT EXISTS reader_progress (
+                    book_id TEXT PRIMARY KEY NOT NULL,
+                    progress REAL NOT NULL DEFAULT 0.0 CHECK(progress >= 0.0 AND progress <= 1.0),
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(book_id) REFERENCES reader_books(id) ON DELETE CASCADE
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "store stable text reader locators",
+            sql: "ALTER TABLE reader_progress ADD COLUMN locator_json TEXT;",
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
@@ -1285,6 +1924,8 @@ fn database_migrations() -> Vec<Migration> {
 pub fn run() {
     tauri::Builder::default()
         .manage(PendingTrayRequests::default())
+        .manage(ReaderWindowRegistry::default())
+        .manage(ReaderShortcutRegistry::default())
         // Must be registered first so a second launch can only focus the primary window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -1302,9 +1943,19 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        restore_last_reader_window(app);
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             save_note_atomic,
             permanently_delete_note_atomic,
+            discard_new_note_atomic,
             restore_notes_atomic,
             permanently_delete_notes_atomic,
             empty_trash_atomic,
@@ -1312,13 +1963,24 @@ pub fn run() {
             save_comparison_atomic,
             sync_main_window_chrome,
             open_compare_window,
+            open_reader_window,
+            mark_reader_window_active,
+            set_reader_restore_shortcut,
             open_note_window,
-            hide_main_window,
+            set_main_window_state,
+            restore_main_window_after_independent_close,
             take_pending_tray_note_requests,
             acknowledge_tray_note_request,
             pick_background_asset,
             pick_font_asset,
-            delete_managed_asset
+            delete_managed_asset,
+            pick_text_book_candidate,
+            preview_text_book,
+            import_text_book,
+            list_reader_books,
+            load_reader_book_content,
+            save_reader_progress,
+            delete_reader_book
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -1331,8 +1993,15 @@ pub fn run() {
 
             let show_item = MenuItem::with_id(app, "show", "显示字隙", true, None::<&str>)?;
             let note_item = MenuItem::with_id(app, "new-note", "新建浮动便签", true, None::<&str>)?;
+            let reader_item = MenuItem::with_id(
+                app,
+                "restore-reader",
+                "恢复最近阅读窗口",
+                true,
+                None::<&str>,
+            )?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &note_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &note_item, &reader_item, &quit_item])?;
 
             TrayIconBuilder::new()
                 .icon(
@@ -1349,6 +2018,7 @@ pub fn run() {
                         let request_id = app.state::<PendingTrayRequests>().enqueue();
                         let _ = app.emit("tray-new-note", request_id);
                     }
+                    "restore-reader" => restore_last_reader_window(app),
                     "quit" => schedule_app_exit(app.clone()),
                     _ => {}
                 })

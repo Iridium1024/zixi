@@ -375,6 +375,30 @@ export async function permanentlyDeleteNote(id: string): Promise<boolean> {
   return deleted
 }
 
+export async function discardNewNote(note: NoteRecord): Promise<boolean> {
+  const database = await getDatabase()
+  let deleted: boolean
+  if (database) {
+    deleted = await invokeTauri<boolean>('discard_new_note_atomic', {
+      noteId: note.id,
+      expectedUpdatedAt: note.updatedAt,
+    })
+  } else {
+    const notes = readLocal<NoteRecord[]>(NOTES_KEY, []).map(normalizeLocalNote)
+    const revisions = readLocal<NoteRevision[]>(REVISIONS_KEY, []).map(normalizeLocalRevision)
+    deleted = notes.some((item) => item.id === note.id
+      && item.updatedAt === note.updatedAt
+      && !item.deletedAt
+      && !revisions.some((revision) => revision.noteId === note.id))
+    if (deleted) writeLocal(NOTES_KEY, notes.filter((item) => item.id !== note.id))
+  }
+  if (deleted) {
+    await publishNoteEvent({ noteId: note.id, action: 'deleted', updatedAt: new Date().toISOString() })
+      .catch((error) => console.warn('未保存的新便签已移除，但跨窗口通知发送失败', error))
+  }
+  return deleted
+}
+
 export async function permanentlyDeleteNotes(ids: Iterable<string>): Promise<BatchTrashMutationResult> {
   const noteIds = normalizeBatchIds(ids)
   if (!noteIds.length) return { noteIds: [] }

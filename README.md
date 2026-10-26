@@ -8,7 +8,7 @@ For the portable download, fully extract it and double-click the root `zixi.exe`
 
 | 位置 / Location | 内容 / Contents |
 |---|---|
-| `releases/v0.1.1/` | 本地待发布的安装包、免安装 ZIP、校验和与说明 / staged packages, checksums, and notes |
+| `releases/v0.2.0/` | 本地待发布的安装包、免安装 ZIP、校验和与说明 / staged packages, checksums, and notes |
 | `src/`、`public/` | 前端源码与静态资源 / frontend source and assets |
 | `src-tauri/` | 桌面端源码、资源与 Rust 构建目录 / desktop source, assets, and Rust build files |
 | `scripts/` | 构建、发布检查与可选工具 / build, release checks, and optional tools |

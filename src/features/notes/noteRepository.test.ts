@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyRevision,
   createNote,
+  discardNewNote,
   emptyTrash,
   getNote,
   listNotes,
@@ -48,6 +49,18 @@ describe('note repository browser fallback', () => {
     const deleted = await moveNoteToTrash(note)
     await restoreNote(deleted)
     expect(await listRevisions(note.id)).toHaveLength(0)
+  })
+
+  it('discards only an unchanged newly-created note', async () => {
+    const untouched = await createNote()
+    expect(await discardNewNote(untouched)).toBe(true)
+    expect(await getNote(untouched.id)).toBeNull()
+
+    let changed = await createNote()
+    const original = changed
+    changed = await saveNote({ ...changed, content: '已经保存' })
+    expect(await discardNewNote(original)).toBe(false)
+    expect(await getNote(changed.id)).toMatchObject({ content: '已经保存' })
   })
 
   it('creates a protection checkpoint before applying a revision', async () => {

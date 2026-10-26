@@ -5,7 +5,7 @@
 | 位置 | 用途 |
 |---|---|
 | `zixi.exe`、`fonts/` | 本地可直接运行的分发文件，由构建脚本同步生成 |
-| `releases/v0.1.1/` | 本地待发布的安装器、免安装 ZIP、校验和、发布说明 |
+| `releases/v0.2.0/` | 本地待发布的安装器、免安装 ZIP、校验和、发布说明 |
 | `releases/archive/` | 历史本地构建归档，不代表线上已发布的原始二进制 |
 | `src/`、`public/` | 前端源码和静态资源 |
 | `src-tauri/src/`、`src-tauri/resources/`、`src-tauri/icons/` | 桌面端源码、随包资源及图标 |

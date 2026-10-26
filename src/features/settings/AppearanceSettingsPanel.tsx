@@ -19,6 +19,9 @@ import type { AppearanceSettings, BackgroundAssetRecord, ImportedFontRecord, The
 import { BUNDLED_FONT_ID, DEFAULT_APPEARANCE } from './appearance'
 import { ruleForPreset, type ComparePreferences } from '../compare/comparePreferences'
 import type { ComparePreset, UnicodeMode, WhitespaceMode } from '../compare/types'
+import type { NotePreferences } from '../notes/notePreferences'
+import type { WindowBehaviorPreferences } from './windowBehavior'
+import type { ReaderPreferences } from '../reader/types'
 import {
   deleteManagedAsset,
   importBackgroundFromBrowser,
@@ -35,6 +38,12 @@ interface AppearanceSettingsPanelProps {
   onStatusChange(status: string): void
   comparePreferences: ComparePreferences
   onComparePreferencesChange(value: ComparePreferences): void
+  notePreferences: NotePreferences
+  onNotePreferencesChange(value: NotePreferences): void
+  windowBehavior: WindowBehaviorPreferences
+  onWindowBehaviorChange(value: WindowBehaviorPreferences): void
+  readerPreferences: ReaderPreferences
+  onReaderPreferencesChange(value: ReaderPreferences): void
 }
 
 const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; description: string; icon: typeof Sun }> = [
@@ -65,6 +74,12 @@ export function AppearanceSettingsPanel({
   onStatusChange,
   comparePreferences,
   onComparePreferencesChange,
+  notePreferences,
+  onNotePreferencesChange,
+  windowBehavior,
+  onWindowBehaviorChange,
+  readerPreferences,
+  onReaderPreferencesChange,
 }: AppearanceSettingsPanelProps) {
   const [pendingBackground, setPendingBackground] = useState<BackgroundAssetRecord | null>(null)
   const [fontToDelete, setFontToDelete] = useState<ImportedFontRecord | null>(null)
@@ -270,6 +285,44 @@ export function AppearanceSettingsPanel({
           <label className="setting-row switch-row"><span><strong>增强对比度</strong><small>独立于主题模式，加粗边界与焦点</small></span><input type="checkbox" checked={appearance.accessibility.increasedContrast} onChange={(event) => update({ accessibility: { ...appearance.accessibility, increasedContrast: event.target.checked } })} /></label>
           <label className="setting-row switch-row"><span><strong>减少透明效果</strong><small>关闭背景模糊并使用完全不透明表面</small></span><input type="checkbox" checked={appearance.accessibility.reduceTransparency} onChange={(event) => update({ accessibility: { ...appearance.accessibility, reduceTransparency: event.target.checked } })} /></label>
           <label className="setting-row switch-row"><span><strong>减少动态效果</strong><small>同时响应系统的“减少动画”偏好</small></span><input type="checkbox" checked={appearance.accessibility.reduceMotion} onChange={(event) => update({ accessibility: { ...appearance.accessibility, reduceMotion: event.target.checked } })} /></label>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading"><div><h2>TXT 阅读器</h2><p>控制书库进入行为、导入后的动作与默认阅读排版。</p></div></div>
+        <div className="setting-rows">
+          <label className="setting-row"><span><strong>阅读方式</strong><small>章节滚动适合连续阅读；单页模式只对当前内部区块分页</small></span><select value={readerPreferences.readingMode} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, readingMode: event.target.value as ReaderPreferences['readingMode'] })}><option value="chapter-scroll">章节滚动</option><option value="paged">单页分页</option></select></label>
+          <label className="setting-row"><span><strong>正文宽度</strong><small>仅改变正文排版宽度，切换后会尽量保留当前文字位置</small></span><select value={readerPreferences.contentWidth} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, contentWidth: Number(event.target.value) as ReaderPreferences['contentWidth'] })}><option value="640">窄（640 px）</option><option value="760">标准（760 px）</option><option value="880">宽（880 px）</option></select></label>
+          <label className="setting-row"><span><strong>正文字体</strong><small>作为打开 TXT 时的默认排版</small></span><select value={readerPreferences.fontFamily} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, fontFamily: event.target.value as ReaderPreferences['fontFamily'] })}><option value="serif">宋体</option><option value="sans">黑体</option></select></label>
+          <label className="setting-row"><span><strong>默认行距</strong><small>可在阅读工具栏中继续即时调整</small></span><select value={readerPreferences.lineHeight} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, lineHeight: Number(event.target.value) })}><option value="1.55">紧凑</option><option value="1.9">舒适</option><option value="2.2">宽松</option></select></label>
+          <label className="setting-row switch-row"><span><strong>进入书架时打开最近阅读窗口</strong><small>默认关闭；开启后进入书架会弹出最近一本书的独立阅读窗口</small></span><input type="checkbox" checked={readerPreferences.autoOpenRecent} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, autoOpenRecent: event.target.checked })} /></label>
+          <label className="setting-row switch-row"><span><strong>导入后立即阅读</strong><small>开启后，导入完成会直接打开独立阅读窗口</small></span><input type="checkbox" checked={readerPreferences.openAfterImport} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, openAfterImport: event.target.checked })} /></label>
+          <label className="setting-row switch-row"><span><strong>滚到边界后继续滚轮切换章节</strong><small>正文仅渲染当前区块；到达首尾后再次有意滚动才会切换，并带有防误触冷却</small></span><input type="checkbox" checked={readerPreferences.autoTurnChapterOnWheel} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, autoTurnChapterOnWheel: event.target.checked })} /></label>
+          <label className="setting-row"><span><strong>段落首行缩进</strong><small>0—8 个全角字符；旧设置保持原有的 0 字符效果</small></span><input aria-label="段落首行缩进" type="range" min="0" max="8" step="1" value={readerPreferences.firstLineIndent} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, firstLineIndent: Number(event.target.value) })} /></label>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading"><div><h2>独立便签</h2><p>控制浮动便签窗口存在未保存修改时的关闭方式。</p></div></div>
+        <div className="setting-rows">
+          <label className="setting-row"><span><strong>关闭窗口时</strong><small>“退出时询问”是新默认值；Ctrl+S 始终会立即保存当前内容</small></span><select aria-label="独立便签关闭方式" value={notePreferences.closeBehavior} onChange={(event) => onNotePreferencesChange({ version: 1, closeBehavior: event.target.value as NotePreferences['closeBehavior'] })}><option value="ask">退出时询问是否保存（推荐）</option><option value="save">自动保存并关闭</option><option value="discard">不保存直接关闭</option></select></label>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading"><div><h2>独立窗口与主窗口</h2><p>“最小化”保留任务栏按钮；“隐藏到托盘”会从任务栏消失，并通过托盘图标恢复。</p></div></div>
+        <div className="setting-rows">
+          <label className="setting-row"><span><strong>打开独立便签后</strong><small>仅影响浮动便签，不影响主窗口中的“便签”页面</small></span><select aria-label="打开独立便签后的主窗口行为" value={windowBehavior.note.open} onChange={(event) => onWindowBehaviorChange({ ...windowBehavior, note: { ...windowBehavior.note, open: event.target.value as WindowBehaviorPreferences['note']['open'] } })}><option value="keep">保持主窗口现状</option><option value="minimize">最小化到任务栏</option><option value="hide">隐藏到系统托盘</option></select></label>
+          <label className="setting-row"><span><strong>关闭最后一个独立便签后</strong><small>仍有其它独立窗口时不会抢回主窗口焦点</small></span><select aria-label="关闭独立便签后的主窗口行为" value={windowBehavior.note.close} onChange={(event) => onWindowBehaviorChange({ ...windowBehavior, note: { ...windowBehavior.note, close: event.target.value as WindowBehaviorPreferences['note']['close'] } })}><option value="keep">保持主窗口现状</option><option value="show">显示并聚焦主窗口</option></select></label>
+          <label className="setting-row"><span><strong>打开独立比较后</strong><small>控制从主比较页面弹出独立比较窗口后的主窗口状态</small></span><select aria-label="打开独立比较后的主窗口行为" value={windowBehavior.compare.open} onChange={(event) => onWindowBehaviorChange({ ...windowBehavior, compare: { ...windowBehavior.compare, open: event.target.value as WindowBehaviorPreferences['compare']['open'] } })}><option value="keep">保持主窗口现状</option><option value="minimize">最小化到任务栏</option><option value="hide">隐藏到系统托盘</option></select></label>
+          <label className="setting-row"><span><strong>关闭最后一个独立比较后</strong><small>仍有其它独立窗口时不会抢回主窗口焦点</small></span><select aria-label="关闭独立比较后的主窗口行为" value={windowBehavior.compare.close} onChange={(event) => onWindowBehaviorChange({ ...windowBehavior, compare: { ...windowBehavior.compare, close: event.target.value as WindowBehaviorPreferences['compare']['close'] } })}><option value="keep">保持主窗口现状</option><option value="show">显示并聚焦主窗口</option></select></label>
+          <label className="setting-row"><span><strong>打开独立阅读窗口后</strong><small>可让主窗口保持、最小化或隐藏到系统托盘</small></span><select aria-label="打开独立阅读窗口后的主窗口行为" value={windowBehavior.reader.open} onChange={(event) => onWindowBehaviorChange({ ...windowBehavior, reader: { ...windowBehavior.reader, open: event.target.value as WindowBehaviorPreferences['reader']['open'] } })}><option value="keep">保持主窗口现状</option><option value="minimize">最小化到任务栏</option><option value="hide">隐藏到系统托盘</option></select></label>
+          <label className="setting-row"><span><strong>关闭最后一个独立阅读窗口后</strong><small>仍有其它独立窗口时不会抢回主窗口焦点</small></span><select aria-label="关闭独立阅读窗口后的主窗口行为" value={windowBehavior.reader.close} onChange={(event) => onWindowBehaviorChange({ ...windowBehavior, reader: { ...windowBehavior.reader, close: event.target.value as WindowBehaviorPreferences['reader']['close'] } })}><option value="keep">保持主窗口现状</option><option value="show">显示并聚焦主窗口</option></select></label>
+          <label className="setting-row switch-row"><span><strong>独立阅读窗口始终置顶</strong><small>在侧边面板中修改时会立即作用于当前窗口</small></span><input type="checkbox" checked={readerPreferences.standaloneAlwaysOnTop} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, standaloneAlwaysOnTop: event.target.checked })} /></label>
+          <label className="setting-row"><span><strong>恢复隐藏阅读窗</strong><small>这是系统级组合键；若被其它程序占用，会保留上一个可用组合键并显示提示</small></span><select aria-label="恢复隐藏阅读窗快捷键" value={readerPreferences.restoreShortcut} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, restoreShortcut: event.target.value as ReaderPreferences['restoreShortcut'] })}><option value="Control+Alt+B">Ctrl+Alt+B</option><option value="Control+Shift+B">Ctrl+Shift+B</option><option value="Alt+Shift+B">Alt+Shift+B</option></select></label>
+          <label className="setting-row"><span><strong>阅读背景不透明度</strong><small>{Math.round(readerPreferences.backgroundOpacity * 100)}%；只影响背景，文字保持不透明</small></span><input aria-label="阅读背景不透明度" type="range" min="0" max="1" step="0.02" value={readerPreferences.backgroundOpacity} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, backgroundOpacity: Number(event.target.value) })} /></label>
+          <label className="setting-row"><span><strong>阅读文字颜色</strong><small>默认跟随主题；选择颜色后改为固定值</small></span><span><input aria-label="阅读文字颜色" type="color" value={readerPreferences.textColor || '#2f2b27'} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, textColor: event.target.value })} /><button type="button" className="secondary-button" onClick={() => onReaderPreferencesChange({ ...readerPreferences, textColor: '' })}>跟随主题</button></span></label>
+          <label className="setting-row switch-row"><span><strong>阅读文字阴影</strong><small>在复杂背景上增加轻微轮廓，可随时关闭</small></span><input type="checkbox" checked={readerPreferences.textShadow} onChange={(event) => onReaderPreferencesChange({ ...readerPreferences, textShadow: event.target.checked })} /></label>
         </div>
       </section>
 
