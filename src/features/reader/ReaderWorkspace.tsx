@@ -1,5 +1,5 @@
 import {
-  BookOpen, FilePlus2, GripHorizontal, ListTree, LoaderCircle,
+  BookOpen, FilePlus2, ListTree, LoaderCircle,
   Maximize2, Minus, PanelRightOpen, Trash2, Type, X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -11,8 +11,17 @@ import {
 } from './readerRepository'
 import type { ReaderBook, ReaderBookContent, ReaderLocator, ReaderPreferences, TextBookCandidate } from './types'
 import { accumulateBoundaryWheel, adjacentChapterBlockIndex, EMPTY_WHEEL_ACCUMULATOR, isScrollBoundary, keyboardReaderDirection, type WheelAccumulator } from './readerNavigation'
+import { isReaderLibrarySort, sortReaderBooks, type ReaderLibrarySort } from './readerLibrarySort'
 
 const ENCODING_OPTIONS = [['UTF-8', 'UTF-8'], ['GBK', 'GB18030 / GBK'], ['Big5', 'Big5'], ['Shift_JIS', 'Shift_JIS'], ['UTF-16LE', 'UTF-16 LE'], ['UTF-16BE', 'UTF-16 BE']] as const
+const LIBRARY_SORT_KEY = 'zixi.reader.library-sort.v1'
+
+function readLibrarySort(): ReaderLibrarySort {
+  try {
+    const value = localStorage.getItem(LIBRARY_SORT_KEY)
+    return isReaderLibrarySort(value) ? value : 'recent'
+  } catch { return 'recent' }
+}
 
 function friendlySize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -68,6 +77,7 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
   const [deleteCandidate, setDeleteCandidate] = useState<ReaderBook | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [highlightedBookId, setHighlightedBookId] = useState<string | null>(null)
+  const [librarySort, setLibrarySort] = useState(readLibrarySort)
   const [blockIndex, setBlockIndex] = useState(0)
   const [displayProgress, setDisplayProgress] = useState(0)
   const [pageIndex, setPageIndex] = useState(0)
@@ -86,6 +96,12 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
   const documentModel = useMemo(() => buildReaderDocument(active?.content ?? ''), [active?.content])
   const block = documentModel.blocks[blockIndex]
   const lines = useMemo(() => block ? linesForBlock(block) : [], [block])
+  const sortedBooks = useMemo(() => sortReaderBooks(books, librarySort), [books, librarySort])
+
+  useEffect(() => {
+    if (standalone) return
+    try { localStorage.setItem(LIBRARY_SORT_KEY, librarySort) } catch { /* Sorting remains available for this session. */ }
+  }, [librarySort, standalone])
 
   const flushProgress = useCallback(async (failHard = false) => {
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
@@ -129,6 +145,11 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
       locatorRef.current = locator
       setActive({ ...loaded, book: restoredBook }); setBlockIndex(nextBlockIndex); setDisplayProgress(restoredProgress); setHighlightedBookId(null)
       setBooks((current) => [restoredBook, ...current.filter((item) => item.id !== loaded.book.id)])
+      if (standalone && isTauriRuntime()) {
+        void import('@tauri-apps/api/event')
+          .then(({ emit }) => emit('reader-book-opened', { bookId: loaded.book.id, lastOpenedAt: loaded.book.lastOpenedAt }))
+          .catch(() => undefined)
+      }
       if (!loaded.book.locatorJson) void saveReaderProgress(loaded.book.id, restoredProgress, locator).catch(() => onStatusChange('旧版阅读进度已恢复，但锚点迁移保存失败'))
       onStatusChange(`正在阅读《${loaded.book.title}》`)
     } catch (error) {
@@ -136,29 +157,54 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
     } finally {
       if (requestId === loadRequestRef.current) setLoadingBookId(null)
     }
-  }, [flushProgress, onStatusChange])
+  }, [flushProgress, onStatusChange, standalone])
 
   useEffect(() => {
     let cancelled = false
-    void listReaderBooks().then((savedBooks) => {
+    let initialized = false
+    const pendingUpdates = new Map<string, Partial<ReaderBook>>()
+    const disposers: Array<() => void> = []
+    const updateBook = (bookId: string, changes: Partial<ReaderBook>) => {
+      if (!initialized) {
+        pendingUpdates.set(bookId, { ...pendingUpdates.get(bookId), ...changes })
+      } else {
+        setBooks((current) => current.map((book) => book.id === bookId ? { ...book, ...changes } : book))
+      }
+    }
+    const initialize = async () => {
+      if (!standalone && isTauriRuntime()) {
+        try {
+          const { listen } = await import('@tauri-apps/api/event')
+          const progressDispose = await listen<{ bookId: string; progress: number; locatorJson: string }>('reader-progress-changed', ({ payload }) => {
+            updateBook(payload.bookId, { progress: payload.progress, locatorJson: payload.locatorJson })
+          })
+          if (cancelled) { progressDispose(); return }
+          disposers.push(progressDispose)
+          const openedDispose = await listen<{ bookId: string; lastOpenedAt: string | null }>('reader-book-opened', ({ payload }) => {
+            updateBook(payload.bookId, { lastOpenedAt: payload.lastOpenedAt })
+          })
+          if (cancelled) { openedDispose(); return }
+          disposers.push(openedDispose)
+        } catch {
+          if (!cancelled) onStatusChange('书架同步失败，重新进入书架可刷新进度')
+        }
+      }
+      const savedBooks = await listReaderBooks()
       if (cancelled) return
-      setBooks(savedBooks); setInitializing(false)
+      const initialBooks = savedBooks.map((book) => ({ ...book, ...pendingUpdates.get(book.id) }))
+      initialized = true
+      setBooks(initialBooks); setInitializing(false)
       if (standalone && initialBookId) void openBook(initialBookId)
-      else if (!standalone && preferences.autoOpenRecent && savedBooks[0] && onOpenStandalone) onOpenStandalone(savedBooks[0])
-    }).catch((error) => { if (!cancelled) { setInitializing(false); onStatusChange(`阅读器初始化失败：${String(error)}`) } })
-    return () => { cancelled = true; loadRequestRef.current += 1 }
+      else if (!standalone && preferences.autoOpenRecent && onOpenStandalone) {
+        const recentBook = sortReaderBooks(initialBooks, 'recent')[0]
+        if (recentBook) onOpenStandalone(recentBook)
+      }
+    }
+    void initialize().catch((error) => { if (!cancelled) { setInitializing(false); onStatusChange(`阅读器初始化失败：${String(error)}`) } })
+    return () => { cancelled = true; loadRequestRef.current += 1; disposers.forEach((dispose) => dispose()) }
     // Initial entry behavior is intentionally sampled only when this workspace mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => {
-    if (standalone || !isTauriRuntime()) return
-    let dispose: (() => void) | undefined
-    void import('@tauri-apps/api/event').then(({ listen }) => listen<{ bookId: string; progress: number; locatorJson: string }>('reader-progress-changed', ({ payload }) => {
-      setBooks((current) => current.map((bookItem) => bookItem.id === payload.bookId ? { ...bookItem, progress: payload.progress, locatorJson: payload.locatorJson } : bookItem))
-    })).then((unlisten) => { dispose = unlisten })
-    return () => dispose?.()
-  }, [standalone])
 
   useEffect(() => () => { if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current); void flushProgress() }, [flushProgress])
 
@@ -323,10 +369,10 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
   }
 
   if (!standalone) return <section className="reader-library-workspace">
-    <header className="reader-library-hero"><div><span className="eyebrow">本地 TXT 书架</span><h2>选择一本书，在独立窗口中阅读</h2><p>书架只负责管理内容与进度；正文、目录和排版设置已移入独立阅读窗口。</p></div><button className="primary-button" onClick={() => isTauriRuntime() ? void beginNativeImport() : fileInputRef.current?.click()}><FilePlus2 size={17} />导入 TXT</button></header>
+    <header className="reader-library-toolbar"><div><h2>书架</h2><span>{books.length} 本</span></div><div className="reader-library-toolbar-actions"><label>排序<select aria-label="书架排序" value={librarySort} onChange={(event) => { if (isReaderLibrarySort(event.target.value)) setLibrarySort(event.target.value) }}><option value="recent">最近使用</option><option value="imported">导入时间</option><option value="title">书名</option><option value="progress">阅读进度</option></select></label><button className="primary-button" onClick={() => isTauriRuntime() ? void beginNativeImport() : fileInputRef.current?.click()}><FilePlus2 size={17} />导入 TXT</button></div></header>
     <input ref={fileInputRef} className="reader-file-input" type="file" accept=".txt,text/plain" onChange={(event) => { void receiveBrowserFile(event.target.files?.[0]); event.currentTarget.value = '' }} />
     {initializing ? <div className="reader-state"><LoaderCircle className="reader-spinner" size={28} /><p>正在读取书架…</p></div> : books.length > 0 ? <div className="reader-library-grid">
-      {books.map((bookItem) => <article key={bookItem.id} className={`reader-library-card ${highlightedBookId === bookItem.id ? 'highlighted' : ''}`}>
+      {sortedBooks.map((bookItem) => <article key={bookItem.id} className={`reader-library-card ${highlightedBookId === bookItem.id ? 'highlighted' : ''}`}>
         <button className="reader-library-cover" onClick={() => onOpenStandalone?.(bookItem)} aria-label={`阅读《${bookItem.title}》`}><BookOpen size={30} /><span>{Math.round(bookItem.progress * 100)}%</span></button>
         <div><strong title={bookItem.title}>{bookItem.title}</strong><small>{friendlySize(bookItem.byteSize)} · {bookItem.encoding}</small><div className="reader-card-progress"><span style={{ width: `${bookItem.progress * 100}%` }} /></div></div>
         <button className="reader-book-delete" aria-label={`删除《${bookItem.title}》`} title="从书架删除" onClick={() => setDeleteCandidate(bookItem)}><Trash2 size={15} /></button>
@@ -338,8 +384,7 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
 
   return <section className="reader-workspace standalone minimal">
     <main className="reader-main-panel">
-      <div className="reader-drag-handle" data-tauri-drag-region title="拖动阅读窗口"><GripHorizontal size={18} /></div>
-      <button className="reader-edge-toggle" aria-label="显示阅读控制面板" title="显示阅读控制面板" onClick={() => onPanelOpenChange?.(true)}><PanelRightOpen size={18} /></button>
+      <header className="reader-titlebar"><div className="reader-titlebar-drag" data-tauri-drag-region title="拖动阅读窗口；双击最大化或还原"><span data-tauri-drag-region>{active?.book.title ?? '独立阅读'}</span></div><button aria-label={panelOpen ? '隐藏阅读控制面板' : '显示阅读控制面板'} title={panelOpen ? '隐藏阅读控制面板' : '显示阅读控制面板'} aria-expanded={panelOpen} aria-controls="reader-control-panel" onClick={() => onPanelOpenChange?.(!panelOpen)}><PanelRightOpen size={17} /></button><button aria-label="最小化阅读窗口" title="最小化" onClick={onMinimize}><Minus size={16} /></button><button aria-label="最大化或还原阅读窗口" title="最大化或还原" onClick={onToggleMaximize}><Maximize2 size={15} /></button><button className="window-close-button" aria-label="关闭阅读窗口" title="关闭阅读窗口" onClick={onRequestClose}><X size={16} /></button></header>
       {initializing ? <div className="reader-state"><LoaderCircle className="reader-spinner" size={28} /><p>正在读取书库…</p></div> : active && block ? <>
         <div ref={viewportRef} className={`reader-scroll-viewport ${preferences.readingMode === 'paged' ? 'paged' : ''}`} onScroll={handleScroll} onWheel={handleWheel} tabIndex={0} aria-label={`${active.book.title}正文`}>
           <article ref={articleRef} className={`reader-document reader-font-${preferences.fontFamily} ${preferences.textShadow ? 'with-text-shadow' : ''}`} style={{ fontSize: `${preferences.fontSize}px`, lineHeight: preferences.lineHeight, color: preferences.textColor || 'var(--text-primary)', ['--reader-content-width' as string]: `${preferences.contentWidth}px`, ['--reader-indent' as string]: preferences.firstLineIndent }}>
@@ -350,9 +395,8 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
       </> : <div className="reader-state reader-welcome"><BookOpen size={42} /><h2>{standalone ? '正在准备独立阅读窗口' : '先从书库选择一本书'}</h2><p>{standalone ? '如果正文没有出现，请回到主窗口确认书籍仍在本地书库中。' : '进入阅读器不会自动打开正文。导入的新书也会先留在书库，除非你在设置中开启自动打开。'}</p>{!standalone ? <button className="primary-button" onClick={() => isTauriRuntime() ? void beginNativeImport() : fileInputRef.current?.click()}><FilePlus2 size={17} />导入 TXT</button> : null}</div>}
       {active ? <div className="reader-progress-track" aria-hidden="true"><span style={{ width: `${displayProgress * 100}%` }} /></div> : null}
     </main>
-    <aside className={`reader-control-panel ${panelOpen ? 'open' : ''}`} aria-hidden={!panelOpen}>
+    <aside id="reader-control-panel" className={`reader-control-panel ${panelOpen ? 'open' : ''}`} aria-hidden={!panelOpen} inert={!panelOpen}>
       <header><div><small>{active ? `${Math.round(displayProgress * 100)}% · ${active.book.encoding}` : '独立阅读'}</small><strong>{active?.book.title ?? '正在载入'}</strong></div><button className="icon-only-button" aria-label="关闭控制面板" onClick={() => onPanelOpenChange?.(false)}><X size={17} /></button></header>
-      <div className="reader-panel-window-actions"><button onClick={onMinimize}><Minus size={15} />最小化</button><button onClick={onToggleMaximize}><Maximize2 size={14} />最大化/还原</button><button onClick={onRequestClose}><X size={15} />关闭窗口</button></div>
       <section><h3><Type size={15} />阅读排版</h3>
         <label>阅读方式<select value={preferences.readingMode} onChange={(event) => changeMode(event.target.value as ReaderPreferences['readingMode'])}><option value="chapter-scroll">局部滚动</option><option value="paged">单页分页</option></select></label>
         <label>字号<input type="range" min="14" max="32" value={preferences.fontSize} onChange={(event) => onPreferencesChange({ ...preferences, fontSize: Number(event.target.value) })} /><output>{preferences.fontSize}px</output></label>

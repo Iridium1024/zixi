@@ -1,8 +1,8 @@
 {
   "name": "zixi-desktop",
   "private": true,
-  "version": "0.2.0",
-  "description": "本地优先的文字差异审阅与桌面便签工具",
+  "version": "0.2.1",
+  "description": "本地优先的文字比较、桌面便签与 TXT 阅读工具",
   "license": "MIT",
   "repository": {
     "type": "git",

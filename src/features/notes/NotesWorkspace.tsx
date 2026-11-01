@@ -50,6 +50,9 @@ interface NotesWorkspaceProps {
   windowBehavior: WindowBehaviorPreferences
   trashMode?: boolean
   onStatusChange?: (status: string) => void
+  listOpen?: boolean
+  settingsOpen?: boolean
+  onBeforeLeaveReady?: (handler: (() => Promise<boolean>) | null) => void
 }
 
 const BUILTIN_FONT_OPTIONS = [
@@ -60,7 +63,7 @@ const BUILTIN_FONT_OPTIONS = [
   { id: 'mono', family: "'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace", label: '等宽字体' },
 ]
 
-export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, onStatusChange }: NotesWorkspaceProps) {
+export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, onStatusChange, listOpen = true, settingsOpen = false, onBeforeLeaveReady }: NotesWorkspaceProps) {
   const [notes, setNotes] = useState<NoteRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<NoteRecord | null>(null)
@@ -71,6 +74,8 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
   const [conflict, setConflict] = useState<NoteConflictError | null>(null)
   const [externalConflict, setExternalConflict] = useState(false)
   const [busy, setBusy] = useState('')
+  const [leaving, setLeaving] = useState(false)
+  const leavingRef = useRef(false)
   const [confirmation, setConfirmation] = useState<'delete' | 'batch-delete' | 'empty-trash' | null>(null)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedTrashIds, setSelectedTrashIds] = useState<Set<string>>(() => new Set())
@@ -189,6 +194,7 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
   }, [coordinator])
 
   function updateDraft(next: NoteRecord) {
+    if (leavingRef.current) return
     pendingCreatedIds.current.delete(next.id)
     setDraft(next)
     draftRef.current = next
@@ -199,6 +205,30 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
     if (!draftRef.current || trashMode) return draftRef.current
     return coordinator.flush(draftRef.current)
   }, [coordinator, trashMode])
+
+  const prepareToLeave = useCallback(async () => {
+    if (leavingRef.current) return false
+    if (busy || conflict || externalConflict) {
+      setSaveError('请先完成当前操作或处理便签冲突，再切换页面')
+      return false
+    }
+    leavingRef.current = true
+    setLeaving(true)
+    try {
+      await flushCurrent()
+      return true
+    } catch {
+      leavingRef.current = false
+      setLeaving(false)
+      setSaveError('当前草稿尚未安全保存，请处理后再切换页面')
+      return false
+    }
+  }, [busy, conflict, externalConflict, flushCurrent])
+
+  useEffect(() => {
+    onBeforeLeaveReady?.(prepareToLeave)
+    return () => onBeforeLeaveReady?.(null)
+  }, [onBeforeLeaveReady, prepareToLeave])
 
   useSaveShortcut(useCallback(async () => {
     if (!draftRef.current || trashMode) return
@@ -217,16 +247,34 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
       setSelectedTrashIds((current) => toggleTrashSelection(current, id))
       return
     }
-    if (id === selectedId) return
+    if (id === selectedId || leavingRef.current || busy) return
+    if (conflict || externalConflict) { setSaveError('请先处理便签冲突，再切换便签'); return }
+    leavingRef.current = true
+    setLeaving(true)
     try {
       await flushCurrent()
       setSelectedId(id)
     } catch {
       setSaveError('当前草稿尚未安全保存，请先处理后再切换')
+    } finally {
+      leavingRef.current = false
+      setLeaving(false)
     }
   }
 
   async function addNote() {
+    if (leavingRef.current || busy) return
+    if (conflict || externalConflict) { setSaveError('请先处理便签冲突，再新建便签'); return }
+    leavingRef.current = true
+    setLeaving(true)
+    try {
+      await flushCurrent()
+    } catch {
+      setSaveError('当前草稿尚未安全保存，请先处理后再新建便签')
+      leavingRef.current = false
+      setLeaving(false)
+      return
+    }
     try {
       const note = await executeNewNoteEntry('notes-page', {
         create: createNote,
@@ -244,6 +292,9 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
     } catch {
       setSaveError('新建失败，请检查本地数据库')
       onStatusChange?.('无法新建便签，本地数据库不可用')
+    } finally {
+      leavingRef.current = false
+      setLeaving(false)
     }
   }
 
@@ -453,27 +504,27 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
       : clearTrash
 
   return (
-    <section className="notes-workspace">
+    <section className={`notes-workspace ${listOpen ? '' : 'list-closed'} ${settingsOpen ? '' : 'settings-closed'}`}>
       {confirmation && <div className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="destructive-confirmation-title"><AlertTriangle size={20} /><div><strong id="destructive-confirmation-title">{confirmationTitle}</strong><p>此操作无法撤销，相关历史版本也会一并删除。</p></div><button className="secondary-button" disabled={Boolean(busy)} onClick={() => setConfirmation(null)}>取消</button><button className="danger-button" disabled={Boolean(busy)} onClick={confirmationAction}>{confirmation === 'empty-trash' ? `确认清空 ${confirmationCount} 张` : `确认永久删除 ${confirmation === 'batch-delete' ? `${confirmationCount} 张` : ''}`}</button></div>}
-      <aside className={`note-list-panel ${trashMode ? 'trash-list-panel' : ''}`}>
+      <aside id="note-list-panel" hidden={!listOpen} className={`note-list-panel ${trashMode ? 'trash-list-panel' : ''} ${selectionMode ? 'selecting' : ''}`}>
         <header>
           <div><span className="section-kicker">{trashMode ? '已移除内容' : '随手记录'}</span><h2>{trashMode ? '回收站' : '桌面便签'}</h2></div>
           {trashMode
             ? <div className="trash-header-actions"><button className="secondary-button compact-action" disabled={!notes.length || Boolean(busy)} onClick={() => selectionMode ? exitSelectionMode() : setSelectionMode(true)}>{selectionMode ? '退出选择' : '选择'}</button><button className="danger-button compact-action" disabled={!notes.length || Boolean(busy)} onClick={() => setConfirmation('empty-trash')} title={`永久清空 ${notes.length} 张便签`}><Trash2 size={15} /><span>清空</span></button></div>
-            : <button className="square-button" disabled={Boolean(busy)} onClick={addNote} title="在主窗口新建便签"><Plus size={18} /></button>}
+            : <button className="square-button" disabled={Boolean(busy) || leaving} onClick={addNote} title="在主窗口新建便签"><Plus size={18} /></button>}
         </header>
         <label className="search-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索便签" /></label>
         {trashMode && selectionMode && <div className="trash-selection-toolbar" role="group" aria-label="回收站批量选择"><strong>已选择 {selectedTrashCount} 项</strong><div><button className="text-button" disabled={!selectedId || Boolean(busy)} onClick={selectCurrentTrashNote}>选择当前项</button><button className="text-button" disabled={!visibleNotes.length || Boolean(busy)} onClick={() => setSelectedTrashIds(selectFilteredTrashIds(visibleNotes.map((note) => note.id)))}>全选当前筛选结果</button><button className="text-button" disabled={!selectedTrashCount || Boolean(busy)} onClick={() => setSelectedTrashIds(new Set())}>取消全选</button></div><div><button className="primary-button compact-action" disabled={!selectedTrashCount || Boolean(busy)} onClick={restoreSelectedTrashNotes}><ArchiveRestore size={15} />恢复所选</button><button className="danger-button compact-action" disabled={!selectedTrashCount || Boolean(busy)} onClick={() => setConfirmation('batch-delete')}><Trash2 size={15} />永久删除所选</button></div></div>}
         <div className="note-list">
           {visibleNotes.map((note) => (
-            <button key={note.id} data-note-id={note.id} disabled={Boolean(busy)} aria-pressed={trashMode && selectionMode ? selectedTrashIds.has(note.id) : undefined} className={`note-list-item ${selectedId === note.id ? 'selected' : ''} ${trashMode && selectionMode ? 'trash-selectable' : ''} ${trashMode && selectionMode && selectedTrashIds.has(note.id) ? 'batch-selected' : ''}`} onClick={() => void selectNote(note.id)}>
+            <button key={note.id} data-note-id={note.id} disabled={Boolean(busy) || leaving} aria-pressed={trashMode && selectionMode ? selectedTrashIds.has(note.id) : undefined} className={`note-list-item ${selectedId === note.id ? 'selected' : ''} ${trashMode && selectionMode ? 'trash-selectable' : ''} ${trashMode && selectionMode && selectedTrashIds.has(note.id) ? 'batch-selected' : ''}`} onClick={() => void selectNote(note.id)}>
               {trashMode && selectionMode && <span className="trash-selection-check" aria-hidden="true">{selectedTrashIds.has(note.id) ? '✓' : ''}</span>}
               <span className="note-swatch" style={{ background: note.style.backgroundColor }} />
               <span><strong>{note.title || '未命名便签'}</strong><small>{note.content.slice(0, 52) || '空便签'}</small></span>
               <time>{new Date(note.updatedAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}</time>
             </button>
           ))}
-          {!visibleNotes.length && <div className="empty-state"><StickyNote size={24} /><p>{trashMode ? '回收站是空的' : '还没有便签'}</p>{!trashMode && <button onClick={addNote}>创建第一张</button>}</div>}
+          {!visibleNotes.length && <div className="empty-state"><StickyNote size={24} /><p>{notes.length ? '没有匹配的搜索结果' : trashMode ? '回收站是空的' : '还没有便签'}</p>{!trashMode && !notes.length && <button onClick={addNote}>创建第一张</button>}</div>}
         </div>
       </aside>
 
@@ -481,7 +532,7 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
         {trashMode && selectionMode ? <div className="detail-empty trash-selection-empty"><StickyNote size={32} /><p>正在选择回收站项目</p><small>普通点击会勾选或取消勾选，不会切换当前详情。</small></div> : draft ? (
           <>
             <header className="note-detail-toolbar">
-              <input className="note-title-input" disabled={trashMode || Boolean(busy)} value={draft.title} onChange={(event) => updateDraft({ ...draft, title: event.target.value })} aria-label="便签标题" />
+              <input className="note-title-input" disabled={trashMode || Boolean(busy) || leaving} value={draft.title} onChange={(event) => updateDraft({ ...draft, title: event.target.value })} aria-label="便签标题" />
               <span className={`save-indicator ${saving ? 'saving' : ''} ${saveError ? 'failed' : ''}`}>{saveError || (saving ? '保存中…' : '已自动保存')}</span>
               {!trashMode && <button className="icon-button" disabled={Boolean(busy) || Boolean(conflict) || externalConflict} onClick={openDraftWindow}><ExternalLink size={16} />独立窗口</button>}
               {trashMode
@@ -494,7 +545,7 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
               value={draft.content}
               onChange={(event) => updateDraft({ ...draft, content: event.target.value })}
               placeholder="记录灵感、待办或会议信息…"
-              readOnly={trashMode || Boolean(busy)}
+              readOnly={trashMode || Boolean(busy) || leaving}
               style={{
                 fontFamily: draft.style.usesDefaultFont ? 'var(--font-note)' : draft.style.fontFamily,
                 fontSize: draft.style.fontSize,
@@ -507,7 +558,7 @@ export function NotesWorkspace({ appearance, windowBehavior, trashMode = false, 
         ) : <div className="detail-empty"><StickyNote size={32} /><p>选择一张便签开始编辑</p></div>}
       </main>
 
-      <aside className="inspector-panel">
+      <aside id="note-settings-panel" className="inspector-panel" hidden={!settingsOpen}>
         <div className="inspector-heading"><span className="section-kicker">格式与记录</span><h2>便签设置</h2></div>
         {draft && (
           <>

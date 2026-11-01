@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Zixi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.zixi.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -19,6 +19,7 @@
         "minWidth": 940,
         "minHeight": 640,
         "center": true,
+        "decorations": false,
         "resizable": true,
         "fullscreen": false
       }
@@ -34,8 +35,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "shortDescription": "文字比较与桌面便签",
-    "longDescription": "本地优先的文字差异审阅和桌面便签工具。",
+    "shortDescription": "文字比较、桌面便签与 TXT 阅读",
+    "longDescription": "本地优先的文字比较、桌面便签与 TXT 阅读工具。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

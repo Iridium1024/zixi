@@ -1,16 +1,21 @@
 import {
   Archive,
+  AlertTriangle,
   BookOpen,
   CheckCircle2,
   FileText,
-  LockKeyhole,
+  Maximize2,
+  Minus,
   Moon,
+  PanelLeft,
+  PanelRight,
   Plus,
   Settings,
   StickyNote,
   Sun,
+  X,
 } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { NotesWorkspace } from './features/notes/NotesWorkspace'
 import { NoteWindow } from './features/notes/NoteWindow'
@@ -47,6 +52,7 @@ import {
   readCachedReaderPreferences,
 } from './features/reader/readerPreferences'
 import type { ReaderBook } from './features/reader/types'
+import { WindowResizeEdges } from './components/WindowResizeEdges'
 
 const CompareWorkspace = lazy(() =>
   import('./features/compare/CompareWorkspace').then((module) => ({
@@ -67,6 +73,20 @@ const ReaderWindow = lazy(() =>
 )
 
 type View = 'compare' | 'reader' | 'notes' | 'trash' | 'settings'
+
+type PanelVisibility = { navigation: boolean; noteList: boolean; noteSettings: boolean }
+const PANEL_VISIBILITY_KEY = 'zixi.main.panels.v1'
+function readPanelVisibility(): PanelVisibility {
+  const defaults = { navigation: true, noteList: true, noteSettings: false }
+  try {
+    const saved: Partial<PanelVisibility> = JSON.parse(localStorage.getItem(PANEL_VISIBILITY_KEY) ?? '{}')
+    return {
+      navigation: typeof saved.navigation === 'boolean' ? saved.navigation : defaults.navigation,
+      noteList: typeof saved.noteList === 'boolean' ? saved.noteList : defaults.noteList,
+      noteSettings: typeof saved.noteSettings === 'boolean' ? saved.noteSettings : defaults.noteSettings,
+    }
+  } catch { return defaults }
+}
 
 const NAV_ITEMS: Array<{ id: View; label: string; description: string; icon: typeof FileText }> = [
   { id: 'compare', label: '文字对比', description: '审阅原文与修改稿', icon: FileText },
@@ -101,7 +121,11 @@ function ThemeShortcut({
 
 function MainApp() {
   const [view, setView] = useState<View>('compare')
-  const [status, setStatus] = useState('内容仅保存在此设备')
+  const [status, setStatus] = useState('就绪')
+  const [panels, setPanels] = useState(readPanelVisibility)
+  const [navigating, setNavigating] = useState(false)
+  const navigatingRef = useRef(false)
+  const beforeNotesLeave = useRef<(() => Promise<boolean>) | null>(null)
   const [appearance, setAppearance] = useState(readCachedAppearance)
   const [notePreferences, setNotePreferences] = useState(readCachedNotePreferences)
   const [windowBehavior, setWindowBehavior] = useState(readCachedWindowBehavior)
@@ -113,6 +137,45 @@ function MainApp() {
   const readerPreferencesHydrated = useRef(false)
   const { resolvedTheme, issues: runtimeIssues } = useAppearanceRuntime(appearance)
   const { preferences, setPreferences } = useComparePreferences(setStatus)
+
+  useEffect(() => {
+    try { localStorage.setItem(PANEL_VISIBILITY_KEY, JSON.stringify(panels)) } catch { /* UI still works for this session. */ }
+  }, [panels])
+
+  const registerBeforeNotesLeave = useCallback((handler: (() => Promise<boolean>) | null) => {
+    beforeNotesLeave.current = handler
+  }, [])
+
+  async function navigateTo(next: View) {
+    if (next === view || navigatingRef.current) return
+    navigatingRef.current = true
+    setNavigating(true)
+    try {
+      if (view === 'notes') {
+        if (!beforeNotesLeave.current || !await beforeNotesLeave.current()) {
+          setStatus('便签尚未安全保存，请处理后再切换页面')
+          return
+        }
+      }
+      setView(next)
+      setStatus('就绪')
+    } finally {
+      navigatingRef.current = false
+      setNavigating(false)
+    }
+  }
+
+  function togglePanel(panel: keyof PanelVisibility) {
+    setPanels((current) => ({ ...current, [panel]: !current[panel] }))
+  }
+
+  async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
+    if (!('__TAURI_INTERNALS__' in window)) return
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      await getCurrentWindow()[action]()
+    } catch { setStatus('窗口操作失败，请重试') }
+  }
 
   useEffect(() => {
     loadSetting<unknown>('appearance')
@@ -321,21 +384,28 @@ function MainApp() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${panels.navigation ? '' : 'navigation-closed'}`}>
       <div className="app-background" aria-hidden="true" />
       <div className="app-background-tint" aria-hidden="true" />
-      <aside className="app-sidebar">
+      <header className="app-titlebar">
+        <button className="titlebar-button" aria-label={panels.navigation ? '隐藏主导航' : '显示主导航'} title={panels.navigation ? '隐藏主导航' : '显示主导航'} aria-expanded={panels.navigation} aria-controls="main-navigation" onClick={() => togglePanel('navigation')}><PanelLeft size={17} /></button>
+        {(view === 'notes' || view === 'trash') && <button className="titlebar-button" aria-label={panels.noteList ? '隐藏便签列表' : '显示便签列表'} title={panels.noteList ? '隐藏便签列表' : '显示便签列表'} aria-expanded={panels.noteList} aria-controls="note-list-panel" onClick={() => togglePanel('noteList')}><StickyNote size={17} /></button>}
+        <div className="titlebar-drag-region" data-tauri-drag-region title="拖动窗口；双击最大化或还原"><strong data-tauri-drag-region>{page.title}</strong></div>
+        <div className={`topbar-status ${/失败|错误|无法|不可用|冲突|未安全保存/.test(status) ? 'failed' : ''}`} title={status} role="status">{/失败|错误|无法|不可用|冲突|未安全保存/.test(status) ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}<span>{status}</span></div>
+        {(view === 'notes' || view === 'trash') && <button className="titlebar-button" aria-label={panels.noteSettings ? '隐藏便签设置' : '显示便签设置'} title={panels.noteSettings ? '隐藏便签设置' : '显示便签设置'} aria-expanded={panels.noteSettings} aria-controls="note-settings-panel" onClick={() => togglePanel('noteSettings')}><PanelRight size={17} /></button>}
+        <div className="titlebar-window-actions"><button aria-label="最小化窗口" title="最小化" onClick={() => void windowAction('minimize')}><Minus size={16} /></button><button aria-label="最大化或还原窗口" title="最大化或还原" onClick={() => void windowAction('toggleMaximize')}><Maximize2 size={15} /></button><button className="window-close-button" aria-label="关闭主窗口" title="关闭主窗口" onClick={() => void windowAction('close')}><X size={16} /></button></div>
+      </header>
+      <aside id="main-navigation" className="app-sidebar" hidden={!panels.navigation}>
         <div className="brand"><BrandMark /><span><strong>字隙</strong><small>文字之间，留有余地</small></span></div>
         <nav aria-label="主导航">
           {NAV_ITEMS.map(({ id, label, description, icon: Icon }) => (
-            <button key={id} aria-label={label} aria-current={view === id ? 'page' : undefined} className={view === id ? 'active' : ''} onClick={() => { setView(id); if (id === 'reader') setStatus('阅读内容仅保存在此设备') }}>
+            <button key={id} aria-label={label} disabled={navigating} aria-current={view === id ? 'page' : undefined} className={view === id ? 'active' : ''} onClick={() => void navigateTo(id)}>
               <Icon size={18} strokeWidth={1.75} /><span><strong>{label}</strong><small>{description}</small></span>
             </button>
           ))}
         </nav>
         <div className="sidebar-spacer" />
         <button className="quick-note" onClick={quickNote} aria-label="新建浮动便签"><Plus size={17} /><span>新建浮动便签</span></button>
-        <div className="local-chip"><LockKeyhole size={15} /><div><strong>本地优先</strong><small>内容不离开设备</small></div></div>
         <div className="sidebar-theme" aria-label="快速主题切换">
           <ThemeShortcut value="light" label="浅色" active={appearance.themeMode === 'light'} onClick={setThemeMode} />
           <ThemeShortcut value="dark" label="深色" active={appearance.themeMode === 'dark'} onClick={setThemeMode} />
@@ -344,18 +414,15 @@ function MainApp() {
       </aside>
 
       <div className="app-main">
-        <header className="app-topbar">
-          <div><h1>{page.title}</h1><p>{page.description}</p></div>
-          <div className="topbar-status" title={status}><CheckCircle2 size={15} /><span>{status}</span></div>
-        </header>
         <div className="view-host">
           {view === 'compare' && <Suspense fallback={<div className="view-loading">正在载入文字比较器…</div>}><CompareWorkspace onStatusChange={setStatus} resolvedTheme={resolvedTheme} editorFontFamily="var(--font-editor)" fontMeasureKey={`${appearance.fonts.editorFontId ?? 'system'}:${appearance.importedFonts.map((font) => font.id).join(',')}`} editorFontSize={appearance.compareEditorFontSize} preferences={preferences} onOpenStandalone={openCompareWindow} /></Suspense>}
           {view === 'reader' && <Suspense fallback={<div className="view-loading">正在载入阅读器…</div>}><ReaderWorkspace onStatusChange={setStatus} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onOpenStandalone={(book) => void openReaderWindow(book)} /></Suspense>}
-          {view === 'notes' && <NotesWorkspace appearance={appearance} windowBehavior={windowBehavior} onStatusChange={setStatus} />}
-          {view === 'trash' && <NotesWorkspace appearance={appearance} windowBehavior={windowBehavior} trashMode onStatusChange={setStatus} />}
+          {view === 'notes' && <NotesWorkspace appearance={appearance} windowBehavior={windowBehavior} onStatusChange={setStatus} listOpen={panels.noteList} settingsOpen={panels.noteSettings} onBeforeLeaveReady={registerBeforeNotesLeave} />}
+          {view === 'trash' && <NotesWorkspace appearance={appearance} windowBehavior={windowBehavior} trashMode onStatusChange={setStatus} listOpen={panels.noteList} settingsOpen={panels.noteSettings} />}
           {view === 'settings' && <AppearanceSettingsPanel appearance={appearance} runtimeIssues={runtimeIssues} onChange={setAppearance} onStatusChange={setStatus} comparePreferences={preferences} onComparePreferencesChange={setPreferences} notePreferences={notePreferences} onNotePreferencesChange={setNotePreferences} windowBehavior={windowBehavior} onWindowBehaviorChange={setWindowBehavior} readerPreferences={readerPreferences} onReaderPreferencesChange={setReaderPreferences} />}
         </div>
       </div>
+      <WindowResizeEdges />
     </div>
   )
 }

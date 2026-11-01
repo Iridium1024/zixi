@@ -6,6 +6,7 @@ import { applyMainWindowCloseBehavior, normalizeWindowBehavior, readCachedWindow
 import { loadReaderPreferences, normalizeReaderPreferences, persistReaderPreferences, readCachedReaderPreferences } from './readerPreferences'
 import { ReaderWorkspace } from './ReaderWorkspace'
 import type { ReaderPreferences } from './types'
+import { WindowResizeEdges } from '../../components/WindowResizeEdges'
 
 interface ReaderWindowProps { bookId: string }
 
@@ -27,6 +28,7 @@ export function ReaderWindow({ bookId }: ReaderWindowProps) {
   }, [])
 
   useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return
     let cancelled = false
     const disposers: Array<() => void> = []
     void Promise.all([
@@ -70,6 +72,7 @@ export function ReaderWindow({ bookId }: ReaderWindowProps) {
   }, [])
 
   useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return
     let cancelled = false
     void import('@tauri-apps/api/window').then(async ({ getCurrentWindow }) => {
       const dispose = await getCurrentWindow().onCloseRequested((event) => {
@@ -134,6 +137,7 @@ export function ReaderWindow({ bookId }: ReaderWindowProps) {
 
   return <main className={`reader-window minimal ${temporarilyHidden ? 'temporarily-hidden' : ''}`} style={{ ['--reader-background-opacity' as string]: `${preferences.backgroundOpacity * 100}%` }}>
     <ReaderWorkspace standalone initialBookId={bookId} preferences={preferences} onPreferencesChange={(next) => void updatePreferences(next)} onStatusChange={setStatus} onFlushReady={(flush) => { flushRef.current = flush }} panelOpen={panelOpen} onPanelOpenChange={setPanelOpen} onRequestClose={() => void closeWindow()} onMinimize={() => void minimize()} onToggleMaximize={() => void toggleMaximize()} />
+    <WindowResizeEdges onError={() => setStatus('窗口缩放失败，请重试')} />
     {showStatus ? <output className="reader-window-alert" role="alert">{status}<button onClick={() => setStatus('')}>知道了</button></output> : null}
   </main>
 }

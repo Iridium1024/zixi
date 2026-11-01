@@ -6,7 +6,6 @@ import {
   Monitor,
   Moon,
   RotateCcw,
-  ShieldCheck,
   Sun,
   Trash2,
   Type,
@@ -263,8 +262,7 @@ export function AppearanceSettingsPanel({
   return (
     <section className="settings-view">
       <header className="settings-header">
-        <div><p className="eyebrow">外观与阅读</p><h1>让界面安静下来</h1><p>主题、背景和字体只保存在当前设备，并实时同步到已经打开的便签窗口。</p></div>
-        <div className="privacy-note"><ShieldCheck size={17} /><span><strong>本地资源</strong>不会上传字体或图片</span></div>
+        <div><p className="eyebrow">外观与阅读</p><h1>让界面安静下来</h1><p>调整主题、背景与字体，并实时同步到已经打开的便签窗口。</p></div>
       </header>
 
       {runtimeIssues.length > 0 && <div className="settings-alert" role="status">{runtimeIssues.map((issue) => <p key={issue}>{issue}</p>)}</div>}
