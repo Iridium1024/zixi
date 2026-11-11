@@ -27,13 +27,13 @@
 
   --app-background: #f4f2ed;
   --background-tint: #f4f2ed;
-  --sidebar-background: #ece9e2;
-  --surface-primary: #fcfbf8;
-  --surface-secondary: #f2efe9;
-  --surface-elevated: #fffefb;
-  --surface-hover: #f7f4ef;
+  --sidebar-background: #f4f2ed;
+  --surface-primary: #f5f3ee;
+  --surface-secondary: #f2f0eb;
+  --surface-elevated: #faf9f6;
+  --surface-hover: #ebe9e4;
   --surface-active: #ece8f4;
-  --control-background: #fffefb;
+  --control-background: transparent;
   --text-primary: #292724;
   --text-secondary: #7b766e;
   --text-tertiary: #9a948b;
@@ -63,13 +63,13 @@
   color-scheme: dark;
   --app-background: #242321;
   --background-tint: #242321;
-  --sidebar-background: #292724;
-  --surface-primary: #2e2c29;
-  --surface-secondary: #34312e;
-  --surface-elevated: #3a3733;
-  --surface-hover: #373430;
+  --sidebar-background: #242321;
+  --surface-primary: #282725;
+  --surface-secondary: #272624;
+  --surface-elevated: #302f2c;
+  --surface-hover: #1e1d1b;
   --surface-active: #433d50;
-  --control-background: #35322f;
+  --control-background: transparent;
   --text-primary: #eeeae3;
   --text-secondary: #aaa49b;
   --text-tertiary: #7f7971;
@@ -105,14 +105,10 @@ button { color: inherit; }
 input, select, textarea { color: var(--text-primary); }
 ::selection { background: var(--selection); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: none;
+  background-image: linear-gradient(var(--interaction-focus), var(--interaction-focus));
 }
 [data-contrast='more'] { --border-subtle: var(--border-strong); }
-[data-contrast='more'] button:focus-visible,
-[data-contrast='more'] input:focus-visible,
-[data-contrast='more'] select:focus-visible,
-[data-contrast='more'] textarea:focus-visible { outline-width: 3px; outline-offset: 3px; }
 [data-reduce-motion='true'] *,
 [data-reduce-motion='true'] *::before,
 [data-reduce-motion='true'] *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }

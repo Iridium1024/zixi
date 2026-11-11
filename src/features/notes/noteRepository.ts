@@ -57,17 +57,18 @@ export class NoteConflictError extends Error {
 
 let databasePromise: Promise<SqlDatabase | null> | undefined
 
-async function getDatabase(): Promise<SqlDatabase | null> {
+export async function getDatabase(): Promise<SqlDatabase | null> {
   if (!isTauriRuntime()) return null
   if (!databasePromise) {
-    databasePromise = import('@tauri-apps/plugin-sql')
-      .then(async ({ default: Database }) => {
-        const database = await Database.load('sqlite:zixi.db') as SqlDatabase
+    databasePromise = import('../../lib/database')
+      .then(async ({ loadDatabase }) => {
+        const database = await loadDatabase() as SqlDatabase
         await database.execute('PRAGMA journal_mode = WAL')
         await database.execute('PRAGMA foreign_keys = ON')
         return database
       })
       .catch((error) => {
+        databasePromise = undefined
         console.error('无法打开本地数据库', error)
         throw error
       })

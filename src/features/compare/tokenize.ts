@@ -23,8 +23,19 @@ function normalizeKey(text: string, rule: ComparisonRule): string {
 
 function isTrailingHorizontalWhitespace(source: string, token: SourceToken): boolean {
   if (!horizontalWhitespace.test(token.text)) return false
-  if (token.end >= source.length) return true
-  return source[token.end] === '\r' || source[token.end] === '\n'
+  let end = token.end
+  while (end < source.length && /[\t \u00a0]/u.test(source[end])) end += 1
+  return end >= source.length || source[end] === '\r' || source[end] === '\n'
+}
+
+/** Whole-input equality must have the same meaning at every document size. */
+export function comparisonKey(source: string, rule: ComparisonRule): string {
+  if (rule.whitespace === 'all' && rule.unicode === 'none' && rule.caseSensitive) return source
+  let key = source.replace(/\r\n?|\n/gu, '\n')
+  if (rule.whitespace === 'trim-trailing') key = key.replace(/[\t \u00a0]+(?=\n|$)/gu, '')
+  if (rule.unicode !== 'none') key = key.normalize(rule.unicode === 'nfkc' ? 'NFKC' : 'NFC')
+  if (!rule.caseSensitive) key = key.toLocaleLowerCase('zh-CN')
+  return rule.whitespace === 'collapse' ? key.replace(/\s+/gu, ' ') : key
 }
 
 function mergeCollapsedWhitespace(tokens: SourceToken[]): SourceToken[] {
@@ -46,6 +57,7 @@ export function tokenizeSource(
   requestedRule: ComparisonRule | ComparePreset,
   granularity?: 'grapheme' | 'word',
   baseOffset = 0,
+  preserveWhitespace = false,
 ): SourceToken[] {
   if (!source) return []
   const rule = normalizeRule(requestedRule)
@@ -59,7 +71,7 @@ export function tokenizeSource(
       start,
       end: start + segment.segment.length,
     }
-    if (rule.whitespace === 'trim-trailing' && isTrailingHorizontalWhitespace(source, {
+    if (!preserveWhitespace && rule.whitespace === 'trim-trailing' && isTrailingHorizontalWhitespace(source, {
       ...token,
       start: segment.index,
       end: segment.index + segment.segment.length,
@@ -69,8 +81,10 @@ export function tokenizeSource(
   return rule.whitespace === 'collapse' ? mergeCollapsedWhitespace(tokens) : tokens
 }
 
-export function refineTokensToGraphemes(tokens: SourceToken[], rule: ComparisonRule): SourceToken[] {
-  return tokens.flatMap((token) => tokenizeSource(token.text, rule, 'grapheme', token.start))
+export function refineTokensToGraphemes(tokens: SourceToken[], rule: ComparisonRule, source: string): SourceToken[] {
+  // Trailing whitespace was already removed using the complete source.
+  return tokens.flatMap((token) => tokenizeSource(token.text, rule, 'grapheme', token.start, true))
+    .filter((token) => rule.whitespace !== 'trim-trailing' || !isTrailingHorizontalWhitespace(source, token))
 }
 
 export function countGraphemes(value: string): number {

@@ -7,6 +7,7 @@ afterEach(cleanup)
 function renderTitlebar(title = '一个非常长但仍然可以拖动的便签标题') {
   const actions = {
     onTitleChange: vi.fn(),
+    onCopyIndex: vi.fn(),
     onTogglePin: vi.fn(),
     onMinimize: vi.fn(),
     onRequestClose: vi.fn(),

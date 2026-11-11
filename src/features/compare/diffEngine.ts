@@ -1,5 +1,5 @@
 import { diffArrays, type ChangeObject } from 'diff'
-import { countGraphemes, refineTokensToGraphemes, tokenizeSource } from './tokenize'
+import { comparisonKey, countGraphemes, refineTokensToGraphemes, tokenizeSource } from './tokenize'
 import { PRESET_RULES, type ComparisonRule, type CompareRequest, type DiffChange, type DiffResult, type SourceRange, type SourceToken } from './types'
 
 const DEFAULT_TIMEOUT_MS = 450
@@ -24,7 +24,7 @@ function calculateComponents(leftTokens: SourceToken[], rightTokens: SourceToken
   return diffArrays(leftTokens, rightTokens, { comparator: (left, right) => left.key === right.key, timeout: options.timeoutMs, maxEditLength: options.maxEditLength })
 }
 
-function componentsToChanges(components: ChangeObject<SourceToken[]>[], rule: ComparisonRule, options: Required<EngineOptions>, allowRefinement: boolean): DiffChange[] {
+function componentsToChanges(components: ChangeObject<SourceToken[]>[], rule: ComparisonRule, options: Required<EngineOptions>, allowRefinement: boolean, deadline: number, sources: Pick<CompareRequest, 'left' | 'right'>): DiffChange[] {
   const result: DiffChange[] = []
   for (let index = 0; index < components.length; index += 1) {
     const current = components[index]
@@ -34,11 +34,10 @@ function componentsToChanges(components: ChangeObject<SourceToken[]>[], rule: Co
     if (isPair) {
       const leftTokens = current.removed ? current.value : next.value
       const rightTokens = current.added ? current.value : next.value
-      if (allowRefinement) {
-        const refined = calculateComponents(refineTokensToGraphemes(leftTokens, rule), refineTokensToGraphemes(rightTokens, rule), options)
+      if (allowRefinement && performance.now() < deadline && textOf(leftTokens).length + textOf(rightTokens).length <= 30_000) {
+        const refined = calculateComponents(refineTokensToGraphemes(leftTokens, rule, sources.left), refineTokensToGraphemes(rightTokens, rule, sources.right), { ...options, timeoutMs: Math.max(1, deadline - performance.now()) })
         if (refined) {
-          const refinedChanges = componentsToChanges(refined, rule, options, false)
-          if (refinedChanges.length) { result.push(...refinedChanges); index += 1; continue }
+          result.push(...componentsToChanges(refined, rule, options, false, deadline, sources)); index += 1; continue
         }
       }
       result.push(buildChange(result.length, 'replace', leftTokens, rightTokens)); index += 1; continue
@@ -94,17 +93,19 @@ export function compareText(request: CompareRequest, engineOptions: EngineOption
   const startedAt = performance.now()
   const options: Required<EngineOptions> = { timeoutMs: engineOptions.timeoutMs ?? DEFAULT_TIMEOUT_MS, maxEditLength: engineOptions.maxEditLength ?? DEFAULT_MAX_EDIT_LENGTH }
   const rule = ruleFor(request)
-  const shouldStartWithLines = request.left.length + request.right.length >= LARGE_TEXT_THRESHOLD
+  if (comparisonKey(request.left, rule) === comparisonKey(request.right, rule)) return { changes: [], stats: summarize([]), degraded: false, durationMs: performance.now() - startedAt }
+  const canUseLines = rule.whitespace !== 'collapse'
+  const shouldStartWithLines = canUseLines && request.left.length + request.right.length >= LARGE_TEXT_THRESHOLD
   const leftTokens = shouldStartWithLines ? lineTokens(request.left, rule) : tokenizeSource(request.left, rule)
   const rightTokens = shouldStartWithLines ? lineTokens(request.right, rule) : tokenizeSource(request.right, rule)
   let components = calculateComponents(leftTokens, rightTokens, options)
   let degraded = shouldStartWithLines
   let message = shouldStartWithLines ? '文本较长，已使用行级比较以保持输入流畅。' : undefined
-  if (!components && !shouldStartWithLines) {
+  if (!components && !shouldStartWithLines && canUseLines) {
     degraded = true; message = '细粒度比较超过计算上限，已退化为行级比较。'
     components = calculateComponents(lineTokens(request.left, rule), lineTokens(request.right, rule), { timeoutMs: Math.max(options.timeoutMs, 700), maxEditLength: Math.max(options.maxEditLength, 100_000) })
   }
-  const changes = components ? componentsToChanges(components, rule, options, !degraded) : wholeDocumentFallback(request)
+  const changes = components ? componentsToChanges(components, rule, options, true, performance.now() + Math.min(options.timeoutMs, 250), request) : wholeDocumentFallback(request)
   if (!components) { degraded = true; message = '差异过大，已将全文作为一个替换区间显示。' }
   return { changes, stats: summarize(changes), degraded, message, durationMs: performance.now() - startedAt }
 }

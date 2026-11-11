@@ -1,4 +1,6 @@
 mod asset_validation;
+mod note_folders;
+mod storage;
 
 use asset_validation::{detect_background, detect_font, extension_matches};
 use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
@@ -8,12 +10,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc, Mutex,
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -29,6 +32,82 @@ const BACKGROUND_BYTE_LIMIT: u64 = 24 * 1024 * 1024;
 const FONT_BYTE_LIMIT: u64 = 12 * 1024 * 1024;
 const TEXT_BOOK_BYTE_LIMIT: u64 = 32 * 1024 * 1024;
 const TEXT_PREVIEW_CHARACTER_LIMIT: usize = 4_000;
+static SNAPSHOT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[tauri::command]
+async fn write_collaboration_snapshot(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    kind: String,
+    content: String,
+) -> Result<String, String> {
+    let label = window.label();
+    let (directory, extension) = match kind.as_str() {
+        "note" if label == "main" || label.starts_with("note-") => ("notes", "txt"),
+        "mindmap" if label == "main" || label.starts_with("mindmap-") => ("mindmaps", "json"),
+        _ => return Err("当前窗口无法创建此类协作副本".into()),
+    };
+    let folder = app
+        .state::<storage::StorageState>()
+        .root
+        .join("collaboration")
+        .join(directory);
+    let path = write_collaboration_snapshot_file(&folder, extension, &content)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn write_collaboration_snapshot_file(
+    folder: &Path,
+    extension: &str,
+    content: &str,
+) -> Result<PathBuf, String> {
+    fs::create_dir_all(folder).map_err(|e| format!("无法创建协作副本目录：{e}"))?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let serial = SNAPSHOT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = folder.join(format!("{stamp}-{serial}.{extension}"));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| format!("无法创建协作副本：{e}"))?;
+    if let Err(error) = file
+        .write_all(content.as_bytes())
+        .and_then(|_| file.sync_all())
+    {
+        drop(file);
+        let _ = fs::remove_file(&path);
+        return Err(format!("写入协作副本失败：{error}"));
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+async fn pick_mind_map_collaboration_file(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<String>, String> {
+    if window.label() != "main" && !window.label().starts_with("mindmap-") {
+        return Err("当前窗口不能应用导图协作文件".into());
+    }
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("选择导图协作文件")
+        .add_filter("导图协作文件", &["json"])
+        .blocking_pick_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|_| "无法读取选择的文件路径".to_string())?;
+    fs::read_to_string(path)
+        .map(Some)
+        .map_err(|e| format!("读取协作文件失败：{e}"))
+}
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Dwm::{
@@ -321,10 +400,11 @@ fn managed_asset_dir(app: &tauri::AppHandle, kind: &str) -> Result<PathBuf, Stri
         "font" => "fonts",
         _ => return Err("未知的外观资源类型".into()),
     };
-    app.path()
-        .app_config_dir()
-        .map(|root| root.join("appearance").join(leaf))
-        .map_err(|error| error.to_string())
+    Ok(app
+        .state::<storage::StorageState>()
+        .root
+        .join("appearance")
+        .join(leaf))
 }
 
 fn source_parts(path: &Path) -> Result<(String, String), String> {
@@ -382,10 +462,7 @@ fn persist_managed_asset(
 }
 
 fn note_database_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map(|root| root.join("zixi.db"))
-        .map_err(|error| error.to_string())
+    Ok(app.state::<storage::StorageState>().root.join("zixi.db"))
 }
 
 fn open_note_database(path: &Path) -> Result<Connection, String> {
@@ -1045,10 +1122,11 @@ fn inspect_text_book(
 }
 
 fn managed_book_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map(|root| root.join("reader").join("books"))
-        .map_err(|error| error.to_string())
+    Ok(app
+        .state::<storage::StorageState>()
+        .root
+        .join("reader")
+        .join("books"))
 }
 
 fn reader_book_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReaderBookRecord> {
@@ -1540,6 +1618,86 @@ async fn open_compare_window(
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn open_mind_map_window(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    map_id: String,
+    title: String,
+) -> Result<OpenCompareWindowResult, String> {
+    require_main_window(&window)?;
+    if map_id.is_empty()
+        || !map_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err("导图标识无效".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let app_for_window = app.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        app.run_on_main_thread(move || {
+            let result = create_or_show_mind_map_window(app_for_window, map_id, title);
+            let _ = sender.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+        receiver
+            .recv_timeout(Duration::from_secs(8))
+            .map_err(|_| "导图窗口创建超时".to_string())?
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn create_or_show_mind_map_window(
+    app: tauri::AppHandle,
+    map_id: String,
+    title: String,
+) -> Result<OpenCompareWindowResult, String> {
+    let label = format!("mindmap-{map_id}");
+    if let Some(window) = app.get_webview_window(&label) {
+        window.show().map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(OpenCompareWindowResult { created: false });
+    }
+    let route = format!("?window=mindmap&id={map_id}");
+    let url = if cfg!(debug_assertions) {
+        WebviewUrl::External(
+            tauri::Url::parse(&format!("http://localhost:5173/{route}"))
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        WebviewUrl::App(format!("index.html{route}").into())
+    };
+    let builder = WebviewWindowBuilder::new(&app, &label, url)
+        .title(format!("字隙 · {title}"))
+        .inner_size(980.0, 760.0)
+        .min_inner_size(620.0, 440.0)
+        .decorations(false)
+        .resizable(true)
+        .center()
+        .visible(false)
+        .transparent(true);
+    #[cfg(target_os = "windows")]
+    let builder = builder.no_redirection_bitmap(true);
+    let window = builder.build().map_err(|e| e.to_string())?;
+    let restorable = StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED;
+    let _ = window.restore_state(restorable);
+    let window_for_state = window.clone();
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            WindowEvent::CloseRequested { .. } | WindowEvent::Moved(_) | WindowEvent::Resized(_)
+        ) {
+            let _ = window_for_state.app_handle().save_window_state(restorable);
+        }
+    });
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(OpenCompareWindowResult { created: true })
+}
+
 fn create_or_show_compare_window(app: tauri::AppHandle) -> Result<OpenCompareWindowResult, String> {
     const LABEL: &str = "compare";
     if let Some(window) = app.get_webview_window(LABEL) {
@@ -1917,6 +2075,33 @@ fn database_migrations() -> Vec<Migration> {
             sql: "ALTER TABLE reader_progress ADD COLUMN locator_json TEXT;",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "create local mind maps",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS mind_maps (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    title TEXT NOT NULL,
+                    data_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS mind_maps_updated_idx ON mind_maps(updated_at DESC);
+            "#,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "create single-level note folders",
+            sql: note_folders::MIGRATION,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "persist directory ordering",
+            sql: note_folders::ORDER_MIGRATION,
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
@@ -1934,11 +2119,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:zixi.db", database_migrations())
-                .build(),
-        )
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
@@ -1958,7 +2139,14 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            storage::get_storage_info,
+            storage::pick_storage_directory,
+            storage::migrate_storage_and_restart,
+            write_collaboration_snapshot,
+            pick_mind_map_collaboration_file,
             save_note_atomic,
+            note_folders::note_folders_state,
+            note_folders::mutate_note_folder,
             permanently_delete_note_atomic,
             discard_new_note_atomic,
             restore_notes_atomic,
@@ -1968,6 +2156,7 @@ pub fn run() {
             save_comparison_atomic,
             sync_main_window_chrome,
             open_compare_window,
+            open_mind_map_window,
             open_reader_window,
             mark_reader_window_active,
             set_reader_restore_shortcut,
@@ -1988,6 +2177,21 @@ pub fn run() {
             delete_reader_book
         ])
         .setup(|app| {
+            // Resolve/offline-migrate before any frontend or plugin SQL connection can open.
+            let storage = storage::StorageState::initialize(app.path().app_config_dir()?)
+                .map_err(std::io::Error::other)?;
+            let database_url = storage.database_url();
+            for folder in ["backgrounds", "fonts"] {
+                app.asset_protocol_scope()
+                    .allow_directory(storage.root.join("appearance").join(folder), true)?;
+            }
+            app.manage(storage);
+            app.handle().plugin(
+                tauri_plugin_sql::Builder::default()
+                    .add_migrations(&database_url, database_migrations())
+                    .build(),
+            )?;
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -2075,11 +2279,64 @@ fn show_main_window(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod revision_policy_tests {
     use super::{
-        permanently_delete_notes_atomic_connection, restore_notes_atomic_connection,
-        save_comparison_atomic_connection, save_note_atomic_connection, AtomicComparisonSaveInput,
+        database_migrations, permanently_delete_notes_atomic_connection,
+        restore_notes_atomic_connection, save_comparison_atomic_connection,
+        save_note_atomic_connection, write_collaboration_snapshot_file, AtomicComparisonSaveInput,
         AtomicNoteSaveInput, REVISION_POLICY_MIGRATION_SQL,
     };
     use rusqlite::{params, Connection};
+
+    #[test]
+    fn collaboration_snapshots_are_distinct_utf8_files() {
+        let folder = std::env::temp_dir().join(format!(
+            "zixi-collaboration-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let first =
+            write_collaboration_snapshot_file(&folder, "txt", "便签内容").expect("first file");
+        let second =
+            write_collaboration_snapshot_file(&folder, "txt", "另一版本").expect("second file");
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "便签内容");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "另一版本");
+        std::fs::remove_file(first).unwrap();
+        std::fs::remove_file(second).unwrap();
+        std::fs::remove_dir(folder).unwrap();
+    }
+
+    #[test]
+    fn mind_map_migration_keeps_existing_notes_and_stores_structured_data() {
+        let database = legacy_database();
+        let migrations = database_migrations();
+        let migration = migrations
+            .iter()
+            .find(|item| item.version == 8)
+            .expect("mind map migration");
+        database
+            .execute_batch(migration.sql)
+            .expect("create mind map table");
+        let data = r#"{"nodeData":{"id":"root","topic":"中心","children":[{"id":"child","topic":"子节点"}]}}"#;
+        database.execute(
+            "INSERT INTO mind_maps (id,title,data_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5)",
+            params!["map-1", "导图", data, "2026-01-01", "2026-01-01"],
+        ).expect("insert map");
+        let stored: String = database
+            .query_row(
+                "SELECT data_json FROM mind_maps WHERE id = 'map-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read map");
+        assert_eq!(stored, data);
+        let notes: i64 = database
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
+            .expect("existing notes");
+        assert!(notes > 0);
+    }
 
     fn legacy_database() -> Connection {
         let database = Connection::open_in_memory().expect("in-memory sqlite");

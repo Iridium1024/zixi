@@ -35,6 +35,15 @@ const note: NoteRecord = {
 }
 
 describe('export formatters', () => {
+  it('retains every custom comparison rule in reports', () => {
+    const rule = { preset: 'custom', caseSensitive: false, whitespace: 'all', unicode: 'none' } as const
+    expect(JSON.parse(formatComparison('旧', '新', result, 'json', rule))).toMatchObject({ preset: 'custom', rule })
+    expect(formatComparison('旧', '新', result, 'html', rule)).toContain('自定义：忽略大小写')
+  })
+
+  it('exports raw-text patches even when review normalization ignores the difference', () => {
+    expect(formatComparison('a ', 'a', { ...result, changes: [] }, 'diff')).toContain('\n-a \n')
+  })
   it('produces a readable Unified Diff', () => {
     const output = formatComparison('旧', '新', result, 'diff')
     expect(output).toContain('--- original.txt\n+++ revised.txt')

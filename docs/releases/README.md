@@ -10,6 +10,6 @@ Release 附件仅上传三个程序包和校验文件；发布说明作为 Relea
 
 Release attachments contain only the three packages and checksums; use the release notes as the Release body. Do not upload the full development project, dependency caches, or local reports. The presence of this folder does not mean a GitHub Release has been published.
 
-免安装版与安装版都将数据保存于 `%APPDATA%\com.zixi.desktop`，移动程序文件夹不会迁移数据。免安装版默认不创建桌面快捷方式。
+免安装版与安装版默认将数据保存于应用的 AppData 目录，移动程序文件夹不会迁移数据。v0.3.0 起可在“设置 → 数据与备份”中迁移资料位置；少量启动配置与 WebView 数据仍在系统目录。免安装版默认不创建桌面快捷方式。
 
-Both portable and installed editions store data in `%APPDATA%\com.zixi.desktop`; moving the program folder does not move data. The portable edition does not create a desktop shortcut by default.
+Both editions default to the application's AppData directory. Since v0.3.0, Settings supports relocating business data; startup configuration and WebView data stay in system directories. Moving the program folder alone does not relocate data. The portable edition does not create a desktop shortcut by default.

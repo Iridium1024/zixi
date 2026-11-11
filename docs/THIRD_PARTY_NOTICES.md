@@ -6,14 +6,16 @@
 
 | 组件 | 版本 | 用途 | 许可证 |
 | --- | ---: | --- | --- |
+| @base-ui/react | 1.9.0 | 统一表单控件与锚定确认浮层 | MIT，完整许可见本文末尾 |
 | React / React DOM | 19.2.8 | 界面运行时 | MIT |
 | Monaco Editor | 0.53.0 | 双栏文本编辑与范围装饰 | MIT |
+| Mind Elixir | 5.15.1 | 横向思维导图编辑 | MIT，版权声明及完整许可见应用中的“开源组件许可”和 `src/features/mindmap/mind-elixir-license.txt` |
 | @monaco-editor/react | 4.7.0 | React 集成 | MIT |
 | jsdiff (`diff`) | 9.0.0 | 确定性序列差异 | BSD-3-Clause |
 | lucide-react | 1.28.0 | 界面图标 | ISC |
 | Tauri API | 2.12.3 | 桌面 API | Apache-2.0 OR MIT |
 | Tauri CLI | 2.12.2 | 构建工具 | Apache-2.0 OR MIT |
-| Tauri dialog/fs/opener/sql/window-state 插件 | 2.x | 保存、文件、定位、SQLite、窗口状态 | MIT OR Apache-2.0 |
+| Tauri dialog/fs/opener/sql/window-state/clipboard-manager 插件 | 2.x | 保存、文件、定位、SQLite、窗口状态、剪贴板 | MIT OR Apache-2.0 |
 | Vite | 7.3.6 | 前端构建 | MIT |
 | TypeScript | 6.0.3 | 类型系统与编译 | Apache-2.0 |
 | Vitest | 3.2.6 | 自动测试 | MIT |
@@ -39,3 +41,33 @@ Rust 直接依赖包括 Tauri 2.12.3、serde、serde_json、sha2、log 及 Tauri
 - `pbek/QOwnNotes`、`Zettlr/Zettlr`：本地文档与导出管线思路。
 
 除正式依赖外，本项目未复制上述参考项目的源代码、图标、品牌或视觉资产。
+
+## Base UI
+
+通用复选框、开关、下拉选择、滑块与删除确认浮层使用 `@base-ui/react`（MIT），按 shadcn Base UI 的组合方式局部接入，样式采用字隙已有设计变量。
+
+来源：https://github.com/mui/base-ui
+
+```text
+MIT License
+
+Copyright (c) 2019 Material-UI SAS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

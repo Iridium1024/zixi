@@ -7,6 +7,7 @@ export type NoteDomainAction =
   | 'restored'
   | 'deleted'
   | 'trash-cleared'
+  | 'folders-changed'
 
 export interface NoteDomainEvent {
   eventId: string

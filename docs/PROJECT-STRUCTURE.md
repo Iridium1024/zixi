@@ -19,4 +19,4 @@
 
 发布使用 `npm run release:build`；已有正式构建时用 `npm run release:stage` 更新本地入口和发布包。快捷方式仅在用户主动运行 `scripts/Create Desktop Shortcut.cmd` 时创建。
 
-免安装 ZIP 仅包含可运行程序、字体、许可证、启动说明和可选工具，不包含源码、依赖缓存、执行报告或用户数据库。用户数据仍位于 `%APPDATA%\com.zixi.desktop`。
+免安装 ZIP 仅包含可运行程序、字体、许可证、启动说明和可选工具，不包含源码、依赖缓存、执行报告或用户数据库。用户资料默认位于应用 AppData 目录；v0.3.0 起可在设置中迁移到所选资料目录，启动定位配置与 WebView 数据保留在系统目录。

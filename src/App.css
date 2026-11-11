@@ -185,16 +185,6 @@ button:disabled { opacity: .48; cursor: not-allowed; filter: none; }
 .custom-rule-toggle { min-height: 34px; grid-template-columns: 18px minmax(0, 1fr); align-items: center; align-self: end; }
 .custom-rule-toggle input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
 
-@container compare-workspace (max-width: 720px) {
-  .workspace-toolbar { align-items: stretch; }
-  .change-navigation,
-  .toolbar-actions { flex: 1 1 100%; justify-content: space-between; }
-  .change-navigation .change-nav { flex: 1 1 0; }
-  .toolbar-actions > button,
-  .toolbar-actions > div { flex: 1 1 0; }
-  .toolbar-actions > div > button { width: 100%; }
-}
-
 @container compare-settings (max-width: 640px) {
   .compare-preferences-section .setting-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .compare-preferences-section .switch-row { grid-template-columns: minmax(0, 1fr) auto; }
@@ -355,6 +345,9 @@ button:disabled { opacity: .48; cursor: not-allowed; filter: none; }
 .note-window-controls button:hover { color: var(--text-primary); background: color-mix(in srgb, currentColor 9%, transparent); }
 .floating-note-editor { width: 100%; height: 100%; resize: none; padding: 19px; color: currentColor; background: transparent; border: 0; outline: 0; }
 .note-window-footer { display: flex; align-items: center; justify-content: space-between; padding: 0 9px; color: currentColor; background: color-mix(in srgb, var(--surface-primary) 78%, transparent); font-size: var(--ui-text-xs); }
+.note-window-save-state, .note-window-index-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-window-index-state, .note-window-count { margin-left: 8px; }
+.note-window-count { flex-shrink: 0; }
 .floating-conflict { position: absolute; z-index: 5; top: max(44px, calc(var(--ui-font-size) * 3)); right: 10px; left: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 10px; color: var(--warning); background: var(--warning-soft); border: 1px solid var(--warning); border-radius: 7px; box-shadow: var(--shadow-float); }
 .floating-conflict p { grid-column: 2; margin: 0; font-size: var(--ui-text-xs); }
 .floating-conflict button { min-height: 30px; color: inherit; background: var(--control-background); border: 1px solid currentColor; border-radius: 6px; cursor: pointer; font-size: var(--ui-text-xs); }
@@ -363,6 +356,50 @@ button:disabled { opacity: .48; cursor: not-allowed; filter: none; }
 .note-close-dialog strong { font-size: var(--ui-text-sm); }
 .note-close-dialog p { margin: 0; color: var(--text-secondary); font-size: var(--ui-text-xs); line-height: 1.5; }
 .note-close-dialog > div { display: flex; justify-content: flex-end; gap: 6px; }
+.note-index-dialog > div { flex-wrap: wrap; }
+
+.mind-map-workspace { width: 100%; height: 100%; min-height: 0; display: grid; grid-template-columns: 210px minmax(0, 1fr); background: var(--surface-secondary); }
+.mind-map-workspace.standalone { grid-template-columns: minmax(0, 1fr); }
+.mind-map-window { width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 42px minmax(0, 1fr); overflow: hidden; color: var(--text-primary); background: var(--surface-secondary); }
+.mind-map-window-titlebar { display: flex; min-width: 0; align-items: center; gap: 8px; background: var(--surface-primary); border-bottom: 1px solid var(--border-subtle); }
+.mind-map-window-drag { flex: 1; align-self: stretch; display: flex; align-items: center; padding: 0 14px; font-size: var(--ui-text-sm); font-weight: 650; }
+.mind-map-window-titlebar > span { max-width: 45%; overflow: hidden; color: var(--text-secondary); font-size: var(--ui-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mind-map-list { min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 16px 12px; border-right: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--surface-primary) 80%, transparent); }
+.mind-map-list header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mind-map-list h2 { margin: 0; font-size: var(--ui-text-md); }
+.mind-map-list header small { color: var(--text-tertiary); font-size: var(--ui-text-xs); }
+.mind-map-list-items { min-height: 0; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.mind-map-list-items button { width: 100%; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 9px; color: var(--text-secondary); background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer; text-align: left; }
+.mind-map-list-items button:hover, .mind-map-list-items button.active { color: var(--accent-muted); background: var(--accent-soft); }
+.mind-map-list-items svg { flex: 0 0 auto; }
+.mind-map-list-items span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mind-map-license { color: var(--text-tertiary); font-size: var(--ui-text-xs); }
+.mind-map-license summary { cursor: pointer; }
+.mind-map-license pre { max-height: 130px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mind-map-main { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+.mind-map-toolbar, .mind-map-actions { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); }
+.mind-map-toolbar input { min-width: 110px; max-width: 280px; flex: 1 1 150px; padding: 6px 8px; color: var(--text-primary); background: transparent; border: 1px solid transparent; border-radius: 6px; font-weight: 650; }
+.mind-map-toolbar input:focus { outline: none; border-color: var(--accent); background: var(--surface-primary); }
+.mind-map-status { min-width: 80px; flex: 1 1 120px; overflow: hidden; color: var(--text-tertiary); font-size: var(--ui-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mind-map-actions { padding-block: 7px; }
+.mind-map-actions small { color: var(--text-tertiary); font-size: var(--ui-text-xs); }
+.mind-map-editor, .mind-map-canvas-wrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.mind-map-canvas-wrap, .mind-map-canvas { width: 100%; height: 100%; }
+.mind-map-canvas .map-container { overflow: hidden; }
+.mind-map-canvas me-parent > me-epd { display: none; }
+.mind-map-canvas me-nodes.zixi-root-folded > me-main,
+.mind-map-canvas me-nodes.zixi-root-folded > svg.lines { display: none; }
+.mind-map-canvas me-tpc { display: flex; align-items: center; gap: 5px; }
+.mind-map-canvas me-tpc > .zixi-node-fold { pointer-events: auto; flex: 0 0 auto; width: 19px; height: 19px; padding: 0; border: 0; border-radius: 4px; color: inherit; background: color-mix(in srgb, currentColor 12%, transparent); cursor: pointer; line-height: 19px; font-size: 13px; }
+.mind-map-canvas me-tpc > .zixi-node-fold:hover { background: color-mix(in srgb, currentColor 24%, transparent); }
+.mind-map-canvas me-tpc.zixi-node-folded > .text { min-width: 0; max-width: 20em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mind-map-canvas me-tpc, .mind-map-canvas [contenteditable] { overflow-wrap: anywhere; word-break: break-word; }
+.mind-map-editor-blocker { position: absolute; z-index: 10; inset: 0; background: transparent; }
+.mind-map-conflict { position: absolute; z-index: 11; inset: auto 12px 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px; color: var(--warning); background: var(--warning-soft); border: 1px solid var(--warning); border-radius: 7px; font-size: var(--ui-text-xs); }
+.mind-map-conflict span { flex: 1 1 200px; }
+.mind-map-error { position: absolute; z-index: 2; inset: 16px auto auto 16px; padding: 10px; color: var(--danger); background: var(--surface-primary); border: 1px solid var(--danger); border-radius: 6px; }
+.mind-map-main > .detail-empty { grid-row: 1 / -1; }
+@media (max-width: 1000px) { .mind-map-workspace { grid-template-columns: 165px minmax(0, 1fr); } .mind-map-actions small { flex-basis: 100%; } }
 .note-close-dialog button { min-height: 30px; padding: 5px 9px; font-size: var(--ui-text-xs); }
 .note-window[data-closing='true']::after { content: ''; position: absolute; z-index: 4; inset: 0; background: color-mix(in srgb, var(--surface-primary) 18%, transparent); pointer-events: none; }
 

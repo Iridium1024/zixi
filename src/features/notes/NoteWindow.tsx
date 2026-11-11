@@ -1,4 +1,4 @@
-import { AlertTriangle, Copy, Minus, Pencil, Pin, PinOff, X } from 'lucide-react'
+import { AlertTriangle, Clipboard, Copy, Minus, Pencil, Pin, PinOff, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { isTauriRuntime } from '../../lib/platform'
 import { BrandMark } from '../../components/BrandMark'
@@ -19,6 +19,8 @@ import {
 } from '../settings/windowBehavior'
 import { useSaveShortcut } from '../../lib/useSaveShortcut'
 import { subscribeNoteEvents } from './noteEvents'
+import { copyNoteIndex } from './noteIndex'
+import { NoteIndexPrompt } from './NoteIndexPrompt'
 import {
   createConflictCopy,
   discardNewNote,
@@ -58,7 +60,9 @@ interface NoteWindowTitlebarProps {
   title: string
   disabled: boolean
   alwaysOnTop: boolean
+  indexDisabled?: boolean
   onTitleChange(title: string): void
+  onCopyIndex(): void
   onTogglePin(): void
   onMinimize(): void
   onRequestClose(): void
@@ -69,7 +73,9 @@ export function NoteWindowTitlebar({
   title,
   disabled,
   alwaysOnTop,
+  indexDisabled = false,
   onTitleChange,
+  onCopyIndex,
   onTogglePin,
   onMinimize,
   onRequestClose,
@@ -139,6 +145,9 @@ export function NoteWindowTitlebar({
         )}
       </div>
       <div className="note-window-controls">
+        <button type="button" disabled={disabled || indexDisabled} onClick={onCopyIndex} title="复制已保存便签的文本副本路径；副本不会自动更新或写回便签" aria-label="复制便签副本路径">
+          <Clipboard size={14} />
+        </button>
         <button type="button" disabled={disabled} onClick={beginTitleEdit} title="重命名便签" aria-label="重命名便签">
           <Pencil size={14} />
         </button>
@@ -160,6 +169,10 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
   const [windowBehavior, setWindowBehavior] = useState(readCachedWindowBehavior)
   const [closing, setClosing] = useState(false)
   const [closePrompt, setClosePrompt] = useState(false)
+  const [indexPrompt, setIndexPrompt] = useState(false)
+  const [indexNewNote, setIndexNewNote] = useState(false)
+  const [indexBusy, setIndexBusy] = useState(false)
+  const [indexStatus, setIndexStatus] = useState('')
   const [lastSaved, setLastSaved] = useState<NoteRecord | null>(null)
   const [conflict, setConflict] = useState<NoteConflictError | null>(null)
   const [deleted, setDeleted] = useState(false)
@@ -344,7 +357,7 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
   }, [coordinator, deleted])
 
   const requestClose = useCallback(async () => {
-    if (closingRef.current || deleted) return
+    if (closingRef.current || deleted || indexPrompt || indexBusy) return
     const action = resolveNoteCloseAction(
       preferencesRef.current.closeBehavior,
       dirtyRef.current || creationPendingRef.current,
@@ -355,7 +368,7 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
     }
     if (action === 'save') await saveAndClose()
     else await closeWithoutSaving()
-  }, [closeWithoutSaving, deleted, saveAndClose])
+  }, [closeWithoutSaving, deleted, indexBusy, indexPrompt, saveAndClose])
 
   useEffect(() => {
     let disposed = false
@@ -379,6 +392,8 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
     let cancelled = false
     void subscribeNoteEvents(async (event) => {
       if (event.noteId !== noteId && !event.noteIds?.includes(noteId)) return
+      setIndexPrompt(false)
+      setIndexStatus('')
       if (closingRef.current && event.action === 'deleted') return
       if (event.action === 'deleted' || event.action === 'trash-cleared') {
         coordinator.cancelPending()
@@ -422,6 +437,7 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
 
   function updateNote(next: NoteRecord) {
     if (closingRef.current || deleted) return
+    setIndexStatus('')
     noteRef.current = next
     setNote(next)
     dirtyRef.current = !noteContentsEqual(next, persistedRef.current)
@@ -499,6 +515,38 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
     }
   }
 
+  async function copyIndex(saveChanges: boolean) {
+    const current = noteRef.current
+    if (!current || closingRef.current || deleted) return
+    setIndexPrompt(false)
+    setIndexBusy(true)
+    let savingDraft = saveChanges
+    try {
+      if (saveChanges) {
+        await coordinator.flush(current)
+        creationPendingRef.current = false
+      }
+      savingDraft = false
+      await copyNoteIndex(current.id)
+      setIndexStatus('副本路径已复制')
+    } catch (error) {
+      setIndexStatus(savingDraft ? '保存失败，未复制路径' : error instanceof Error ? error.message : '复制路径失败')
+    } finally {
+      setIndexBusy(false)
+    }
+  }
+
+  function requestCopyIndex() {
+    if (!noteRef.current || closingRef.current || deleted || conflict || indexBusy || closePrompt) return
+    setIndexStatus('')
+    if (dirtyRef.current || creationPendingRef.current || coordinator.hasPendingSave()) {
+      setIndexNewNote(creationPendingRef.current)
+      setIndexPrompt(true)
+    } else {
+      void copyIndex(false)
+    }
+  }
+
   if (!note) return <main className="note-window-loading">{saveState}</main>
 
   const effectiveOpacity = appearance.accessibility.reduceTransparency ? 1 : note.style.backgroundOpacity
@@ -507,9 +555,11 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
     <main className="note-window" data-closing={closing ? 'true' : 'false'} style={{ backgroundColor: rgba, color: note.style.textColor }}>
       <NoteWindowTitlebar
         title={note.title}
-        disabled={closing || deleted || closePrompt}
+        disabled={closing || deleted || closePrompt || indexPrompt || indexBusy}
         alwaysOnTop={note.alwaysOnTop}
+        indexDisabled={Boolean(conflict)}
         onTitleChange={(title) => updateNote({ ...note, title })}
+        onCopyIndex={requestCopyIndex}
         onTogglePin={() => { void togglePin() }}
         onMinimize={() => { void act('minimize') }}
         onRequestClose={() => { void requestClose() }}
@@ -517,9 +567,10 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
       />
       {conflict && <div className="floating-conflict" role="alert"><AlertTriangle size={17} /><p>另一窗口已保存新版本。本地草稿没有被覆盖。</p><button disabled={closing} onClick={reloadSavedVersion}>重新载入</button><button disabled={closing} onClick={keepDraftCopy}><Copy size={14} />保留副本</button></div>}
       {closePrompt && <div className="note-close-dialog-backdrop"><div className="note-close-dialog" role="alertdialog" aria-modal="true" aria-labelledby="note-close-dialog-title"><strong id="note-close-dialog-title">保存对此便签的更改？</strong><p>未保存的修改会在关闭窗口后丢失。</p><div><button type="button" className="secondary-button" onClick={() => setClosePrompt(false)}>取消</button><button type="button" className="secondary-button" onClick={() => { void closeWithoutSaving() }}>不保存</button><button type="button" className="primary-button" onClick={() => { void saveAndClose() }}>保存</button></div></div></div>}
+      {indexPrompt && <NoteIndexPrompt newNote={indexNewNote} onCancel={() => setIndexPrompt(false)} onCopySaved={() => { void copyIndex(false) }} onSaveAndCopy={() => { void copyIndex(true) }} />}
       <textarea
         className="floating-note-editor"
-        disabled={closing || deleted || closePrompt}
+        disabled={closing || deleted || closePrompt || indexPrompt || indexBusy}
         value={note.content}
         onChange={(event) => updateNote({ ...note, content: event.target.value })}
         placeholder="在这里记录…"
@@ -533,7 +584,9 @@ export function NoteWindow({ noteId, createdFromNew = false }: { noteId: string;
         autoFocus
       />
       <footer className="note-window-footer">
-        <span>{saveState}</span><span>{note.content.length} 字符</span>
+        <span className="note-window-save-state" role="status" aria-live="polite" title={saveState}>{saveState}</span>
+        {indexStatus && <span className="note-window-index-state" role="status" aria-live="polite" title={indexStatus}>{indexStatus}</span>}
+        <span className="note-window-count">{note.content.length} 字符</span>
       </footer>
     </main>
   )

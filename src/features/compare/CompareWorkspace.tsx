@@ -1,7 +1,12 @@
+import { compareText } from './diffEngine'
+import { FloatingMenu } from '../../components/FloatingMenu'
+import { copyText } from '../../lib/copyText'
+import { countGraphemes } from './tokenize'
+import { ViewStatus } from '../../components/ViewStatus'
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker.js?worker'
 import * as localMonaco from 'monaco-editor/esm/vs/editor/editor.api'
-import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Clipboard, Download, Eraser, MoreHorizontal, PanelTopOpen, StickyNote } from 'lucide-react'
+import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Clipboard, Download, Eraser, FileDown, PanelTopOpen, StickyNote } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTauriRuntime } from '../../lib/platform'
 import { formatComparison, type ExportFormat } from '../export/formatters'
@@ -17,7 +22,7 @@ import { type DiffChange } from './types'
 import { useDiffWorker } from './useDiffWorker'
 import { MONACO_DARK_THEME, MONACO_LIGHT_THEME } from './monacoThemes'
 import { createBoundedLayoutScheduler, layoutEditorFromContainer } from './responsiveLayout'
-import { monacoWrappingOptions } from './monacoOptions'
+import { compactGutterDecorationWidth, monacoWrappingOptions } from './monacoOptions'
 import { useSaveShortcut } from '../../lib/useSaveShortcut'
 import { applyMainWindowCloseBehavior, type MainWindowCloseBehavior } from '../settings/windowBehavior'
 
@@ -33,6 +38,7 @@ const SAMPLE_LEFT = `各位同事：\n\n请于周五前提交项目总结。附�
 const SAMPLE_RIGHT = `各位同事：\n\n请务必于本周五前提交项目总结。附件中的关键数据需要再次核对！\n\n谢谢。`
 
 interface CompareWorkspaceProps {
+  statusMessage?: string
   onStatusChange?: (status: string) => void
   resolvedTheme: ResolvedTheme
   editorFontFamily: string
@@ -42,12 +48,13 @@ interface CompareWorkspaceProps {
   standalone?: boolean
   onOpenStandalone?: () => void
   mainWindowCloseBehavior?: MainWindowCloseBehavior
+  onBeforeLeaveReady?: (handler: (() => Promise<boolean>) | null) => void
 }
 
 function optionsFor(change: DiffChange, side: 'left' | 'right') {
   const isLeft = side === 'left'
   const className = change.kind === 'replace' ? 'diff-replace' : isLeft ? 'diff-delete' : 'diff-insert'
-  return { inlineClassName: className, className, glyphMarginClassName: `${className}-glyph`, overviewRuler: { color: change.kind === 'replace' ? '#d29a3a' : isLeft ? '#e36d79' : '#35b989', position: 2 }, minimap: { color: change.kind === 'replace' ? '#d29a3a' : isLeft ? '#e36d79' : '#35b989', position: 1 } }
+  return { inlineClassName: className, className, linesDecorationsClassName: `${className}-glyph`, overviewRuler: { color: change.kind === 'replace' ? '#d29a3a' : isLeft ? '#e36d79' : '#35b989', position: 2 }, minimap: { color: change.kind === 'replace' ? '#d29a3a' : isLeft ? '#e36d79' : '#35b989', position: 1 } }
 }
 
 function makeDecorations(editor: MonacoEditor | null, changes: DiffChange[], side: 'left' | 'right') {
@@ -63,18 +70,18 @@ function makeDecorations(editor: MonacoEditor | null, changes: DiffChange[], sid
 
 type CloseDecision = { status: 'saving' } | Exclude<CompareWindowCloseResult, { status: 'clean' | 'saved' }>
 
-export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFamily, fontMeasureKey, editorFontSize, preferences, standalone = false, onOpenStandalone, mainWindowCloseBehavior = 'keep' }: CompareWorkspaceProps) {
+export function CompareWorkspace({ statusMessage, onStatusChange, resolvedTheme, editorFontFamily, fontMeasureKey, editorFontSize, preferences, standalone = false, onOpenStandalone, mainWindowCloseBehavior = 'keep', onBeforeLeaveReady }: CompareWorkspaceProps) {
   const [left, setLeft] = useState(SAMPLE_LEFT)
   const [right, setRight] = useState(SAMPLE_RIGHT)
   const [activeIndex, setActiveIndex] = useState(0)
-  const [copied, setCopied] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
-  const [moreOpen, setMoreOpen] = useState(false)
+  const [copied, setCopied] = useState<'left' | 'right' | null>(null)
+  const [reportAnchor, setReportAnchor] = useState<HTMLElement | null>(null)
+  const closeReportMenu = useCallback(() => setReportAnchor(null), [])
   const [saveNotice, setSaveNotice] = useState('')
   const [sessionConflict, setSessionConflict] = useState<ComparisonDraft | null>(null)
   const [closeDecision, setCloseDecision] = useState<CloseDecision | null>(null)
   const [gridWidth, setGridWidth] = useState(0)
-  const { result, isCalculating } = useDiffWorker(left, right, preferences.rule)
+  const { result, isCalculating, hasCurrentResult } = useDiffWorker(left, right, preferences.rule)
   const leftEditor = useRef<MonacoEditor | null>(null)
   const rightEditor = useRef<MonacoEditor | null>(null)
   const leftEditorHost = useRef<HTMLDivElement | null>(null)
@@ -86,7 +93,7 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
   const syncScroll = useRef(preferences.syncScroll)
   const hydrated = useRef(false)
   const revision = useRef<number | null>(null)
-  const leftRef = useRef(left); const rightRef = useRef(right); const statsRef = useRef(result.stats)
+  const leftRef = useRef(left); const rightRef = useRef(right)
   const dirty = useRef(false)
   const saveTimer = useRef<number | undefined>(undefined)
   const saveInFlight = useRef<Promise<ComparisonSaveResult> | null>(null)
@@ -94,7 +101,7 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
   const sourceWindow = useRef(`compare-${crypto.randomUUID()}`)
   const seenEvents = useRef(new Set<string>())
 
-  useEffect(() => { leftRef.current = left; rightRef.current = right; statsRef.current = result.stats; syncScroll.current = preferences.syncScroll }, [left, preferences.syncScroll, result.stats, right])
+  useEffect(() => { leftRef.current = left; rightRef.current = right; syncScroll.current = preferences.syncScroll }, [left, preferences.syncScroll, result.stats, right])
 
   useEffect(() => {
     let cancelled = false
@@ -124,7 +131,7 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
 
     const submittedLeft = leftRef.current
     const submittedRight = rightRef.current
-    const submittedStats = statsRef.current
+    const submittedStats = hasCurrentResult && submittedLeft === left && submittedRight === right ? result.stats : compareText({ left: submittedLeft, right: submittedRight, preset: preferences.rule }).stats
     const preset = preferences.rule.preset === 'custom' ? 'review' : preferences.rule.preset
     const operation = (async (): Promise<ComparisonSaveResult> => {
       try {
@@ -150,7 +157,16 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
     } finally {
       if (saveInFlight.current === operation) saveInFlight.current = null
     }
-  }, [preferences.rule.preset])
+  }, [hasCurrentResult, left, preferences.rule, result.stats, right])
+
+  useEffect(() => {
+    onBeforeLeaveReady?.(async () => {
+      if (!hydrated.current) return false
+      const result = await saveCurrent()
+      return (result.status === 'saved' || result.status === 'clean') && !dirty.current
+    })
+    return () => onBeforeLeaveReady?.(null)
+  }, [onBeforeLeaveReady, saveCurrent])
 
   useSaveShortcut(useCallback(async () => {
     const result = await saveCurrent()
@@ -254,14 +270,24 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
   const editorOptions = useMemo(() => ({
     ...monacoWrappingOptions(preferences),
     fontFamily: editorFontFamily, fontSize: editorFontSize, lineHeight: compareEditorLineHeight(editorFontSize),
-    minimap: { enabled: false }, glyphMargin: true, lineNumbers: preferences.lineNumbers ? 'on' as const : 'off' as const,
+    minimap: { enabled: false }, glyphMargin: false, lineNumbers: preferences.lineNumbers ? 'on' as const : 'off' as const,
     lineNumbersMinChars: 3, renderWhitespace: preferences.whitespace, scrollBeyondLastLine: false, smoothScrolling: true,
-    padding: { top: 14, bottom: 14 }, automaticLayout: true, accessibilityPageSize: 20,
+    padding: { top: 18, bottom: 18 }, scrollbar: { verticalScrollbarSize: 7, horizontalScrollbarSize: 6, verticalSliderSize: 7, horizontalSliderSize: 6, verticalHasArrows: false, horizontalHasArrows: false, arrowSize: 0 }, automaticLayout: true, accessibilityPageSize: 20,
   }), [editorFontFamily, editorFontSize, preferences])
 
   const configureEditor = useCallback((editor: MonacoEditor, monaco: Monaco, side: 'left' | 'right') => {
     monaco.editor.defineTheme('zixi-paper', MONACO_LIGHT_THEME); monaco.editor.defineTheme('zixi-charcoal', MONACO_DARK_THEME)
     monaco.editor.setTheme(resolvedTheme === 'dark' ? 'zixi-charcoal' : 'zixi-paper')
+    const compactGutter = () => {
+      const option = monaco.editor.EditorOption
+      const foldingWidth = editor.getOption(option.folding) && editor.getOption(option.showFoldingControls) !== 'never' ? 16 : 0
+      const width = compactGutterDecorationWidth(editor.getOption(option.lineHeight), editor.getOption(option.fontInfo).maxDigitWidth, editor.getModel()?.getLineCount() ?? 1, editor.getOption(option.lineNumbers).renderType !== 0, foldingWidth)
+      if (editor.getOption(option.lineDecorationsWidth) !== width) editor.updateOptions({ lineDecorationsWidth: width })
+    }
+    compactGutter()
+    const gutterConfig = editor.onDidChangeConfiguration(compactGutter)
+    const gutterContent = editor.onDidChangeModelContent(compactGutter)
+    editor.onDidDispose(() => { gutterConfig.dispose(); gutterContent.dispose() })
     if (side === 'left') { leftEditor.current = editor; leftDecorations.current = editor.createDecorationsCollection() }
     else { rightEditor.current = editor; rightDecorations.current = editor.createDecorationsCollection() }
     requestAnimationFrame(refreshEditorLayout)
@@ -297,16 +323,24 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
     })
   }, [result.changes])
 
-  const copyRight = async () => { try { await navigator.clipboard.writeText(right); setCopied(true); setSaveNotice(''); window.setTimeout(() => setCopied(false), 1300) } catch { setSaveNotice('无法写入剪贴板，请在修改文中手动全选复制。') } }
-  const exportComparison = async (format: ExportFormat) => { setExportOpen(false); try { const saved = await saveExport('字隙-比较结果', format, formatComparison(left, right, result, format, preferences.rule.preset === 'custom' ? 'review' : preferences.rule.preset)); if (saved) onStatusChange?.(`已导出 ${format === 'diff' ? 'Unified Diff' : format.toUpperCase()} 对比报告`) } catch { setSaveNotice('导出失败，当前输入仍保留在编辑器中，请重新选择路径。') } }
-  const exportPlain = async (side: 'left' | 'right') => { setExportOpen(false); try { await saveExport(side === 'left' ? '字隙-原文' : '字隙-修改文', 'txt', side === 'left' ? left : right) } catch { setSaveNotice('导出失败，当前输入仍保留在编辑器中，请重新选择路径。') } }
-  const createNoteFromRight = async () => { try { const note = await createNote({ title: `比较结果 ${new Date().toLocaleDateString('zh-CN')}`, content: right }); await openNoteWindow(note.id, note.title); onStatusChange?.('修改文已保存为本地便签') } catch { setSaveNotice('无法打开独立便签；便签记录与修改文仍保留在本地。') } }
+  const copySide = async (side: 'left' | 'right') => { try { await copyText(side === 'left' ? left : right); setCopied(side); setSaveNotice(''); window.setTimeout(() => setCopied(null), 1300) } catch { setSaveNotice('无法写入剪贴板，请在对应稿件中手动全选复制。') } }
+  const exportComparison = async (format: ExportFormat) => {
+    closeReportMenu()
+    if (!hasCurrentResult) { setSaveNotice('正在计算当前文本的差异，请完成后再导出报告。'); return }
+    try { const saved = await saveExport('字隙-比较结果', format, formatComparison(left, right, result, format, preferences.rule)); if (saved) onStatusChange?.(`已导出 ${format === 'diff' ? 'Unified Diff' : format.toUpperCase()} 对比报告`) } catch { setSaveNotice('导出失败，当前输入仍保留在编辑器中，请重新选择路径。') }
+  }
+  const exportPlain = async (side: 'left' | 'right') => { try { await saveExport(side === 'left' ? '字隙-原文' : '字隙-修改稿', 'txt', side === 'left' ? left : right) } catch { setSaveNotice('导出失败，当前输入仍保留在编辑器中，请重新选择路径。') } }
+  const createNoteFromSide = async (side: 'left' | 'right') => { try { const note = await createNote({ title: `${side === 'left' ? '原文' : '修改稿'} ${new Date().toLocaleDateString('zh-CN')}`, content: side === 'left' ? left : right }); await openNoteWindow(note.id, note.title); onStatusChange?.('稿件已保存为本地便签') } catch { setSaveNotice('无法打开独立便签，请在便签列表中检查已创建的记录；原稿件仍保留。') } }
+  function sideHeader(side: 'left' | 'right') {
+    const label = side === 'left' ? '原文' : '修改稿'
+    return <header><h2>{label}</h2><span>{countGraphemes(side === 'left' ? left : right)} 字符</span><div className="manuscript-actions">
+      <button className="ghost-icon" aria-label={`复制${label}`} title={copied === side ? '已复制' : `复制${label}`} onClick={() => void copySide(side)}>{copied === side ? <Check size={16} /> : <Clipboard size={16} />}</button>
+      <button className="ghost-icon" aria-label={`导出${label}`} title={`导出${label} · TXT`} onClick={() => void exportPlain(side)}><Download size={16} /></button>
+      <button className="ghost-icon" aria-label={`将${label}转为便签`} title={`将${label}转为便签`} onClick={() => void createNoteFromSide(side)}><StickyNote size={16} /></button>
+    </div></header>
+  }
   const restoreConflict = () => { if (!sessionConflict) return; setLeft(sessionConflict.leftText); setRight(sessionConflict.rightText); revision.current = sessionConflict.revision; dirty.current = false; setSessionConflict(null); setSaveNotice('已载入另一窗口保存的版本') }
   const overwriteConflict = () => { if (!sessionConflict) return; revision.current = sessionConflict.revision; dirty.current = true; setSessionConflict(null); void saveCurrent() }
-  const runMoreAction = (action: () => void | Promise<void>) => {
-    setMoreOpen(false)
-    void action()
-  }
   const discardAndClose = async () => {
     setCloseDecision({ status: 'saving' })
     try {
@@ -328,23 +362,27 @@ export function CompareWorkspace({ onStatusChange, resolvedTheme, editorFontFami
 
   return (
     <section className={`compare-workspace ${standalone ? 'compare-window-workspace' : ''}`} aria-label="文字比较工作区">
-      {!standalone && <header className="workspace-toolbar">
-        <div className="change-navigation" role="group" aria-label="差异导航"><button className="icon-button change-nav" onClick={() => revealChange(activeIndex - 1)} disabled={!result.changes.length}><ArrowUp size={16} /><span>上一处</span></button><button className="icon-button change-nav" onClick={() => revealChange(activeIndex + 1)} disabled={!result.changes.length}><ArrowDown size={16} /><span>下一处</span></button><output className="change-counter" aria-live="polite">{result.changes.length ? activeIndex + 1 : 0} / {result.changes.length} 处</output></div>
+      <header className="workspace-toolbar compare-topline">
+        <div className="compare-inline-stats" aria-label="差异统计" aria-live="polite"><span className="compare-stat insert" title="新增字符数"><i aria-hidden="true" />+{result.stats.insertedCharacters}</span><span className="compare-stat delete" title="删除字符数"><i aria-hidden="true" />−{result.stats.deletedCharacters}</span><span className="compare-stat replace" title="替换组数"><i aria-hidden="true" />↔ {result.stats.replacementGroups}</span></div>
+        <ViewStatus message={statusMessage} />
         <div className="toolbar-actions">
-          <button className="icon-button" onClick={copyRight}>{copied ? <Check size={16} /> : <Clipboard size={16} />}<span>{copied ? '已复制' : '复制修改稿'}</span></button>
-          <div className="export-menu-wrap"><button className="primary-button" aria-expanded={exportOpen} aria-haspopup="menu" onClick={() => { setMoreOpen(false); setExportOpen((open) => !open) }}><Download size={16} />导出</button>{exportOpen && <div className="export-menu" role="menu"><button role="menuitem" onClick={() => exportPlain('left')}>原文 · TXT</button><button role="menuitem" onClick={() => exportPlain('right')}>修改文 · TXT</button>{(['md', 'json', 'html', 'diff'] as ExportFormat[]).map((format) => <button key={format} role="menuitem" onClick={() => exportComparison(format)}>对比报告 · {format === 'diff' ? 'Unified Diff' : format.toUpperCase()}</button>)}</div>}</div>
-          <div className="more-menu-wrap"><button className="icon-button" aria-expanded={moreOpen} aria-haspopup="menu" onClick={() => { setExportOpen(false); setMoreOpen((open) => !open) }}><MoreHorizontal size={17} /><span>更多</span></button>{moreOpen && <div className="more-menu" role="menu"><button role="menuitem" onClick={() => runMoreAction(() => updateTexts(right, left))}><ArrowLeftRight size={16} />交换原文与修改稿</button><button role="menuitem" onClick={() => runMoreAction(() => updateTexts('', ''))}><Eraser size={16} />清空两栏</button><button role="menuitem" onClick={() => runMoreAction(createNoteFromRight)}><StickyNote size={16} />将修改稿转为便签</button>{onOpenStandalone && <button role="menuitem" onClick={() => runMoreAction(onOpenStandalone)}><PanelTopOpen size={16} />打开独立比较窗口</button>}</div>}</div>
+          <div className="change-navigation" role="group" aria-label="差异导航"><button className="ghost-icon" title="上一处差异" aria-label="上一处差异" onClick={() => revealChange(activeIndex - 1)} disabled={!result.changes.length}><ArrowUp size={16} /></button><button className="ghost-icon" title="下一处差异" aria-label="下一处差异" onClick={() => revealChange(activeIndex + 1)} disabled={!result.changes.length}><ArrowDown size={16} /></button><output className="change-counter" aria-live="polite">{isCalculating ? '计算中…' : `${result.changes.length ? activeIndex + 1 : 0} / ${result.changes.length}`}</output></div>
+          <button className="ghost-icon" aria-label="交换原文与修改稿" title="交换原文与修改稿" onClick={() => updateTexts(right, left)}><ArrowLeftRight size={16} /></button>
+          <button className="ghost-icon" aria-label="清空两栏" title="清空两栏" onClick={() => updateTexts('', '')}><Eraser size={16} /></button>
+          {onOpenStandalone && <button className="ghost-icon" aria-label="打开独立比较窗口" title="打开独立比较窗口" onClick={onOpenStandalone}><PanelTopOpen size={16} /></button>}
+          <button className="ghost-icon" aria-label="导出对比报告" title={hasCurrentResult ? '导出双稿对比报告' : '等待当前比较完成'} disabled={!hasCurrentResult} aria-haspopup="menu" aria-expanded={Boolean(reportAnchor)} onClick={(event) => setReportAnchor(reportAnchor ? null : event.currentTarget)}><FileDown size={16} /></button>
         </div>
-      </header>}
+      </header>
+      {reportAnchor && <FloatingMenu anchor={reportAnchor} label="导出对比报告" onClose={closeReportMenu}>{(['md', 'json', 'html', 'diff'] as ExportFormat[]).map((format) => <button role="menuitem" key={format} disabled={!hasCurrentResult} onClick={() => void exportComparison(format)}>{format === 'diff' ? 'Unified Diff（原始文本补丁）' : format.toUpperCase()}</button>)}</FloatingMenu>}
       {(result.message || saveNotice) && <div className="engine-notice">{saveNotice || result.message}</div>}
       {closeDecision?.status === 'saving' && <div className="compare-close-decision" role="status"><strong>正在安全保存并关闭…</strong><span>请稍候，当前窗口不会跳过未完成的保存。</span></div>}
       {closeDecisionCopy && <div className="compare-close-decision" role="alert"><strong>{closeDecisionCopy.title}</strong><span>{closeDecisionCopy.detail}</span><button onClick={() => setCloseDecision(null)}>返回处理</button><button className="discard-close-button" onClick={() => void discardAndClose()}>放弃未保存内容并关闭</button></div>}
       {sessionConflict && !closeDecision && <div className="comparison-conflict" role="alert"><strong>检测到并发编辑</strong><span>另一窗口已保存更新；当前草稿未被自动覆盖。</span><button onClick={restoreConflict}>载入已保存版本</button><button onClick={overwriteConflict}>保留当前草稿并覆盖</button></div>}
       <div ref={editorGrid} className={`editor-grid ${effectiveLayout === 'stacked' ? 'editor-grid-stacked' : ''}`}>
-        <article className="editor-card"><header><h2>原文</h2><span>{left.length} 字符</span></header><div className="monaco-editor-host" ref={leftEditorHost}><Editor height="100%" language="plaintext" value={left} onChange={(value) => updateTexts(value ?? '', rightRef.current)} onMount={mountLeft} options={editorOptions} aria-label="修改前文本" /></div></article>
-        <article className="editor-card"><header><h2>修改稿</h2><span>{right.length} 字符</span></header><div className="monaco-editor-host" ref={rightEditorHost}><Editor height="100%" language="plaintext" value={right} onChange={(value) => updateTexts(leftRef.current, value ?? '')} onMount={mountRight} options={editorOptions} aria-label="修改后文本" /></div></article>
+        <article className="editor-card">{sideHeader('left')}<div className="manuscript-body"><div className="monaco-editor-host" ref={leftEditorHost}><Editor height="100%" language="plaintext" value={left} onChange={(value) => updateTexts(value ?? '', rightRef.current)} onMount={mountLeft} options={editorOptions} aria-label="修改前文本" /></div></div></article>
+        <article className="editor-card">{sideHeader('right')}<div className="manuscript-body"><div className="monaco-editor-host" ref={rightEditorHost}><Editor height="100%" language="plaintext" value={right} onChange={(value) => updateTexts(leftRef.current, value ?? '')} onMount={mountRight} options={editorOptions} aria-label="修改后文本" /></div></div></article>
       </div>
-      {!standalone && <footer className="diff-summary" aria-live="polite"><span><i className="legend-dot insert" />新增 <strong>{result.stats.insertedCharacters}</strong> 字符</span><span><i className="legend-dot delete" />删除 <strong>{result.stats.deletedCharacters}</strong> 字符</span><span><i className="legend-dot replace" />替换 <strong>{result.stats.replacementGroups}</strong> 组</span><span className="summary-total">共 <strong>{result.stats.totalChanges}</strong> 处差异</span></footer>}
+
     </section>
   )
 }

@@ -1,10 +1,10 @@
 import type { ReaderBook } from './types'
 
-export type ReaderLibrarySort = 'recent' | 'imported' | 'title' | 'progress'
+export type ReaderLibrarySort = 'manual' | 'recent' | 'imported' | 'title' | 'progress'
 const titleCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
 export function isReaderLibrarySort(value: unknown): value is ReaderLibrarySort {
-  return value === 'recent' || value === 'imported' || value === 'title' || value === 'progress'
+  return value === 'manual' || value === 'recent' || value === 'imported' || value === 'title' || value === 'progress'
 }
 
 function recentTime(book: ReaderBook) {
@@ -16,7 +16,7 @@ export function sortReaderBooks(books: readonly ReaderBook[], sort: ReaderLibrar
     const byRecent = recentTime(right).localeCompare(recentTime(left))
     const byImported = right.importedAt.localeCompare(left.importedAt)
     const byTitle = titleCollator.compare(left.title, right.title)
-    const primary = sort === 'recent' ? byRecent
+    const primary = sort === 'recent' || sort === 'manual' ? byRecent
       : sort === 'imported' ? byImported
         : sort === 'title' ? byTitle
           : right.progress - left.progress

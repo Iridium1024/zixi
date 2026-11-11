@@ -1,7 +1,7 @@
 {
   "name": "zixi-desktop",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "本地优先的文字比较、桌面便签与 TXT 阅读工具",
   "license": "MIT",
   "repository": {
@@ -31,8 +31,10 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/plugin-clipboard-manager": "2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2.5.4",
@@ -40,6 +42,7 @@
     "@tauri-apps/plugin-window-state": "^2.4.1",
     "diff": "^9.0.0",
     "lucide-react": "^1.28.0",
+    "mind-elixir": "5.15.1",
     "monaco-editor": "0.53.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

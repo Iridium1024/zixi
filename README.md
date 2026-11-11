@@ -1,6 +1,6 @@
 # 字隙 Zixi
 
-本地优先的文字比较、桌面便签与 TXT 阅读工具 / A local-first app for text comparison, desktop notes, and TXT reading.
+本地优先的文字比较、桌面便签、TXT 阅读与思维导图工具 / A local-first app for text comparison, desktop notes, TXT reading, and mind maps.
 
 下载免安装版后，完整解压并双击根目录 `zixi.exe`；请保留 `fonts/`。默认不会创建桌面快捷方式。
 
@@ -9,6 +9,7 @@ For the portable download, fully extract it and double-click the root `zixi.exe`
 | 位置 / Location | 内容 / Contents |
 |---|---|
 | `releases/v<版本>/` | 本地构建的安装包、免安装 ZIP、校验和与说明 / locally staged packages, checksums, and notes |
+| `releases/archive/` | 历史版本发布材料 / archived release packages |
 | `src/`、`public/` | 前端源码与静态资源 / frontend source and assets |
 | `src-tauri/` | 桌面端源码、资源与 Rust 构建目录 / desktop source, assets, and Rust build files |
 | `scripts/` | 构建、发布检查与可选工具 / build, release checks, and optional tools |

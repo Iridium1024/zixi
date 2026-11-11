@@ -1,3 +1,7 @@
+import { useObjectDirectory } from '../../lib/useObjectDirectory'
+import { SelectControl, RangeControl, CheckControl } from '../../components/FormControls'
+import { ViewStatus } from '../../components/ViewStatus'
+import { WorkspaceNavigation, useUnifiedNavigation } from '../../components/WorkspaceNavigation'
 import {
   BookOpen, FilePlus2, ListTree, LoaderCircle,
   Maximize2, Minus, PanelRightOpen, Trash2, Type, X,
@@ -45,7 +49,7 @@ function ImportDialog({ candidate, onCancel, onImported, onStatusChange }: { can
   }
   return <div className="reader-dialog-backdrop" role="presentation"><section className="reader-import-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-import-title">
     <header><div><span className="eyebrow">导入前检查</span><h2 id="reader-import-title">{candidate.title}</h2></div><button className="icon-only-button" onClick={onCancel} aria-label="取消导入"><X size={17} /></button></header>
-    <div className="reader-import-meta"><span>{candidate.sourceFileName}</span><span>{friendlySize(candidate.byteSize)}</span><label>文字编码<select value={encoding} disabled={busy !== null} onChange={(event) => void changeEncoding(event.target.value)}>{ENCODING_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
+    <div className="reader-import-meta"><span>{candidate.sourceFileName}</span><span>{friendlySize(candidate.byteSize)}</span><label>文字编码<SelectControl aria-label="文字编码" value={encoding} disabled={busy !== null} onChange={(event) => void changeEncoding(event.target.value)}>{ENCODING_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectControl></label></div>
     <div className="reader-preview-heading"><strong>内容预览</strong><span>{busy === 'preview' ? '正在重新解码…' : `检测结果：${preview.detectedEncoding}`}</span></div>
     <pre className="reader-import-preview">{preview.preview || '文件中没有可显示的文字。'}</pre>
     {preview.hadDecodingErrors ? <p className="reader-encoding-warning">当前编码产生了替换字符，请切换编码并确认预览正常后再导入。</p> : null}
@@ -54,6 +58,7 @@ function ImportDialog({ candidate, onCancel, onImported, onStatusChange }: { can
 }
 
 interface ReaderWorkspaceProps {
+  statusMessage?: string
   onStatusChange(message: string): void
   preferences: ReaderPreferences
   onPreferencesChange(value: ReaderPreferences): void
@@ -68,7 +73,12 @@ interface ReaderWorkspaceProps {
   onToggleMaximize?(): void
 }
 
-export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChange, standalone = false, initialBookId, onOpenStandalone, onFlushReady, panelOpen = false, onPanelOpenChange, onRequestClose, onMinimize, onToggleMaximize }: ReaderWorkspaceProps) {
+export function ReaderWorkspace({ statusMessage, onStatusChange, preferences, onPreferencesChange, standalone = false, initialBookId, onOpenStandalone, onFlushReady, panelOpen = false, onPanelOpenChange, onRequestClose, onMinimize, onToggleMaximize }: ReaderWorkspaceProps) {
+  const unifiedNavigation = useUnifiedNavigation()
+  const directoryError = useRef(onStatusChange)
+  useEffect(() => { directoryError.current = onStatusChange }, [onStatusChange])
+  const reportDirectoryError = useCallback((message: string) => directoryError.current(message), [])
+  const directory = useObjectDirectory('book', reportDirectoryError)
   const [books, setBooks] = useState<ReaderBook[]>([])
   const [active, setActive] = useState<ReaderBookContent | null>(null)
   const [loadingBookId, setLoadingBookId] = useState<string | null>(null)
@@ -96,7 +106,7 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
   const documentModel = useMemo(() => buildReaderDocument(active?.content ?? ''), [active?.content])
   const block = documentModel.blocks[blockIndex]
   const lines = useMemo(() => block ? linesForBlock(block) : [], [block])
-  const sortedBooks = useMemo(() => sortReaderBooks(books, librarySort), [books, librarySort])
+  const sortedBooks = useMemo(() => librarySort === 'manual' ? directory.ordered(sortReaderBooks(books, 'recent')) : sortReaderBooks(books, librarySort), [books, librarySort, directory])
 
   useEffect(() => {
     if (standalone) return
@@ -369,12 +379,14 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
   }
 
   if (!standalone) return <section className="reader-library-workspace">
-    <header className="reader-library-toolbar"><div><h2>书架</h2><span>{books.length} 本</span></div><div className="reader-library-toolbar-actions"><label>排序<select aria-label="书架排序" value={librarySort} onChange={(event) => { if (isReaderLibrarySort(event.target.value)) setLibrarySort(event.target.value) }}><option value="recent">最近使用</option><option value="imported">导入时间</option><option value="title">书名</option><option value="progress">阅读进度</option></select></label><button className="primary-button" onClick={() => isTauriRuntime() ? void beginNativeImport() : fileInputRef.current?.click()}><FilePlus2 size={17} />导入 TXT</button></div></header>
+    {unifiedNavigation && <WorkspaceNavigation><aside className="shared-book-directory" aria-label="书架目录"><header><strong>书架</strong><small>{books.length} 本</small></header><div className="directory-items">{sortedBooks.map((item) => <button key={item.id} data-tooltip-overflow title={item.title} aria-pressed={directory.selected.has(item.id)} {...directory.dragProps(item.id, sortedBooks, false, () => setLibrarySort('manual'))} onClick={(event) => { if (!directory.choose(item.id, event.ctrlKey || event.metaKey)) onOpenStandalone?.(item) }}><BookOpen size={15} /><span>{item.title}</span></button>)}{!books.length && <p className="directory-empty">导入 TXT 后在此查看书目</p>}</div></aside></WorkspaceNavigation>}
+
+    <header className="reader-library-toolbar"><div><h2>书架</h2><span>{books.length} 本</span><ViewStatus message={statusMessage} /></div><div className="reader-library-toolbar-actions"><label>排序<SelectControl aria-label="书架排序" value={librarySort} onChange={(event) => { if (isReaderLibrarySort(event.target.value)) setLibrarySort(event.target.value) }}><option value="manual">手动排序</option><option value="recent">最近使用</option><option value="imported">导入时间</option><option value="title">书名</option><option value="progress">阅读进度</option></SelectControl></label><button className="primary-button" onClick={() => isTauriRuntime() ? void beginNativeImport() : fileInputRef.current?.click()}><FilePlus2 size={17} />导入 TXT</button></div></header>
     <input ref={fileInputRef} className="reader-file-input" type="file" accept=".txt,text/plain" onChange={(event) => { void receiveBrowserFile(event.target.files?.[0]); event.currentTarget.value = '' }} />
     {initializing ? <div className="reader-state"><LoaderCircle className="reader-spinner" size={28} /><p>正在读取书架…</p></div> : books.length > 0 ? <div className="reader-library-grid">
-      {sortedBooks.map((bookItem) => <article key={bookItem.id} className={`reader-library-card ${highlightedBookId === bookItem.id ? 'highlighted' : ''}`}>
-        <button className="reader-library-cover" onClick={() => onOpenStandalone?.(bookItem)} aria-label={`阅读《${bookItem.title}》`}><BookOpen size={30} /><span>{Math.round(bookItem.progress * 100)}%</span></button>
-        <div><strong title={bookItem.title}>{bookItem.title}</strong><small>{friendlySize(bookItem.byteSize)} · {bookItem.encoding}</small><div className="reader-card-progress"><span style={{ width: `${bookItem.progress * 100}%` }} /></div></div>
+      {sortedBooks.map((bookItem) => <article key={bookItem.id} className={`reader-library-card ${directory.selected.has(bookItem.id) ? 'directory-selected' : ''} ${highlightedBookId === bookItem.id ? 'highlighted' : ''}`} {...directory.dragProps(bookItem.id, sortedBooks, false, () => setLibrarySort('manual'))}>
+        <button className="reader-library-cover" onClick={(event) => { if (!directory.choose(bookItem.id, event.ctrlKey || event.metaKey)) onOpenStandalone?.(bookItem) }} aria-label={`阅读《${bookItem.title}》`}><BookOpen size={30} /><span>{Math.round(bookItem.progress * 100)}%</span></button>
+        <div><strong data-tooltip-overflow title={bookItem.title}>{bookItem.title}</strong><small>{friendlySize(bookItem.byteSize)} · {bookItem.encoding}</small><div className="reader-card-progress"><span style={{ width: `${bookItem.progress * 100}%` }} /></div></div>
         <button className="reader-book-delete" aria-label={`删除《${bookItem.title}》`} title="从书架删除" onClick={() => setDeleteCandidate(bookItem)}><Trash2 size={15} /></button>
       </article>)}
     </div> : <div className="reader-state reader-welcome"><BookOpen size={42} /><h2>书架还是空的</h2><p>导入 TXT 后，应用会保存自己的受管副本；原文件之后可以移动或删除。</p><button className="primary-button" onClick={() => isTauriRuntime() ? void beginNativeImport() : fileInputRef.current?.click()}><FilePlus2 size={17} />导入 TXT</button></div>}
@@ -398,14 +410,14 @@ export function ReaderWorkspace({ onStatusChange, preferences, onPreferencesChan
     <aside id="reader-control-panel" className={`reader-control-panel ${panelOpen ? 'open' : ''}`} aria-hidden={!panelOpen} inert={!panelOpen}>
       <header><div><small>{active ? `${Math.round(displayProgress * 100)}% · ${active.book.encoding}` : '独立阅读'}</small><strong>{active?.book.title ?? '正在载入'}</strong></div><button className="icon-only-button" aria-label="关闭控制面板" onClick={() => onPanelOpenChange?.(false)}><X size={17} /></button></header>
       <section><h3><Type size={15} />阅读排版</h3>
-        <label>阅读方式<select value={preferences.readingMode} onChange={(event) => changeMode(event.target.value as ReaderPreferences['readingMode'])}><option value="chapter-scroll">局部滚动</option><option value="paged">单页分页</option></select></label>
-        <label>字号<input type="range" min="14" max="32" value={preferences.fontSize} onChange={(event) => onPreferencesChange({ ...preferences, fontSize: Number(event.target.value) })} /><output>{preferences.fontSize}px</output></label>
-        <label>行距<select value={preferences.lineHeight} onChange={(event) => onPreferencesChange({ ...preferences, lineHeight: Number(event.target.value) })}><option value="1.55">紧凑</option><option value="1.9">舒适</option><option value="2.2">宽松</option></select></label>
-        <label>字体<select value={preferences.fontFamily} onChange={(event) => onPreferencesChange({ ...preferences, fontFamily: event.target.value as ReaderPreferences['fontFamily'] })}><option value="serif">宋体</option><option value="sans">黑体</option></select></label>
-        <label>首行缩进<input type="range" min="0" max="8" step="1" value={preferences.firstLineIndent} onChange={(event) => onPreferencesChange({ ...preferences, firstLineIndent: Number(event.target.value) })} /><output>{preferences.firstLineIndent} 字</output></label>
-        <label>背景不透明度<input type="range" min="0" max="1" step="0.02" value={preferences.backgroundOpacity} onChange={(event) => onPreferencesChange({ ...preferences, backgroundOpacity: Number(event.target.value) })} /><output>{Math.round(preferences.backgroundOpacity * 100)}%</output></label>
+        <label>阅读方式<SelectControl aria-label="阅读方式" value={preferences.readingMode} onChange={(event) => changeMode(event.target.value as ReaderPreferences['readingMode'])}><option value="chapter-scroll">局部滚动</option><option value="paged">单页分页</option></SelectControl></label>
+        <label>字号<RangeControl aria-label="字号"  min="14" max="32" value={preferences.fontSize} onChange={(event) => onPreferencesChange({ ...preferences, fontSize: Number(event.target.value) })} /><output>{preferences.fontSize}px</output></label>
+        <label>行距<SelectControl aria-label="行距" value={preferences.lineHeight} onChange={(event) => onPreferencesChange({ ...preferences, lineHeight: Number(event.target.value) })}><option value="1.55">紧凑</option><option value="1.9">舒适</option><option value="2.2">宽松</option></SelectControl></label>
+        <label>字体<SelectControl aria-label="字体" value={preferences.fontFamily} onChange={(event) => onPreferencesChange({ ...preferences, fontFamily: event.target.value as ReaderPreferences['fontFamily'] })}><option value="serif">宋体</option><option value="sans">黑体</option></SelectControl></label>
+        <label>首行缩进<RangeControl aria-label="首行缩进"  min="0" max="8" step="1" value={preferences.firstLineIndent} onChange={(event) => onPreferencesChange({ ...preferences, firstLineIndent: Number(event.target.value) })} /><output>{preferences.firstLineIndent} 字</output></label>
+        <label>背景不透明度<RangeControl aria-label="背景不透明度"  min="0" max="1" step="0.02" value={preferences.backgroundOpacity} onChange={(event) => onPreferencesChange({ ...preferences, backgroundOpacity: Number(event.target.value) })} /><output>{Math.round(preferences.backgroundOpacity * 100)}%</output></label>
         <label>文字颜色<input type="color" value={preferences.textColor || '#2f2b27'} onChange={(event) => onPreferencesChange({ ...preferences, textColor: event.target.value })} /><button className="reader-color-reset" onClick={() => onPreferencesChange({ ...preferences, textColor: '' })}>跟随主题</button></label>
-        <label className="reader-panel-check"><input type="checkbox" checked={preferences.textShadow} onChange={(event) => onPreferencesChange({ ...preferences, textShadow: event.target.checked })} />复杂背景下增加文字阴影</label>
+        <label className="reader-panel-check"><CheckControl aria-label="复杂背景下增加文字阴影"  checked={preferences.textShadow} onChange={(event) => onPreferencesChange({ ...preferences, textShadow: event.target.checked })} />复杂背景下增加文字阴影</label>
       </section>
       <section className="reader-panel-toc"><h3><ListTree size={15} />目录 <span>{documentModel.toc.length || '—'}</span></h3>{documentModel.toc.length > 0 ? <nav>{documentModel.toc.map((entry) => <button key={entry.id} onClick={() => { jumpToToc(entry.offset); onPanelOpenChange?.(false) }}>{entry.title}</button>)}</nav> : <p>未识别到章节标题；左右方向键不会把内部区块伪装成章节。</p>}</section>
       <div className="reader-keyboard-help"><strong>快捷键</strong><small>↑/↓ 翻页或滚屏 · ←/→ 切章 · Esc 关闭面板/窗口 · B 临时隐藏</small></div>

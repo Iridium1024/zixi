@@ -10,6 +10,26 @@ function firstChange(
 }
 
 describe('compareText', () => {
+  it('keeps interior spaces during grapheme refinement in review mode', () => {
+    const result = compareText({ left: 'a b', right: 'abx', preset: 'review' })
+    expect(result.changes).toMatchObject([{ kind: 'delete', leftText: ' ', leftRange: { start: 1, end: 2 } }, { kind: 'insert', rightText: 'x' }])
+    expect(result.stats).toMatchObject({ insertedCharacters: 1, deletedCharacters: 1 })
+  })
+
+  it('preserves relaxed cross-line whitespace equality across the long-document threshold', () => {
+    const prefix = '相同的长文本前文。\n'.repeat(6000)
+    expect(compareText({ left: prefix + 'a\nb', right: prefix + 'a b', preset: 'relaxed' }).changes).toEqual([])
+    const result = compareText({ left: prefix + 'a\nb\n共同结尾', right: prefix + 'a b\n共同结尾x', preset: 'relaxed' })
+    expect(result.changes).toMatchObject([{ kind: 'insert', rightText: 'x' }])
+  })
+
+  it('refines changed long-document lines without losing interior spaces or counting ignored line-end spaces', () => {
+    const prefix = '相同前文。\n'.repeat(9000)
+    const result = compareText({ left: prefix + 'a b  \n', right: prefix + 'abx\n', preset: 'review' })
+    expect(result.degraded).toBe(true)
+    expect(result.stats).toMatchObject({ insertedCharacters: 1, deletedCharacters: 1 })
+    expect(result.changes.map((change) => change.leftText)).toContain(' ')
+  })
   it('finds an inserted Chinese word and preserves source offsets', () => {
     const result = compareText({
       left: '请在今天提交报告',

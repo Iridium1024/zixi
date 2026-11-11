@@ -1,4 +1,5 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_READER_PREFERENCES } from './readerPreferences'
 import type { ReaderBook } from './types'
@@ -20,6 +21,7 @@ vi.mock('./readerRepository', async (importOriginal) => ({
   loadReaderBookContent: mocked.loadBook,
   saveReaderProgress: mocked.saveProgress,
 }))
+vi.mock('../notes/noteFolders', () => ({ readNoteFolders: async () => ({ folders: [], entries: {} }), mutateNoteFolder: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({
   listen: async (name: string, handler: (event: { payload: unknown }) => void) => {
     mocked.listeners.set(name, handler)
@@ -61,7 +63,8 @@ describe('reader library workspace', () => {
     expect(cardTitles(container)).toEqual(['乙', '甲'])
     act(() => mocked.listeners.get('reader-progress-changed')?.({ payload: { bookId: 'a', progress: 0.95, locatorJson: '{}' } }))
     expect(cardTitles(container)).toEqual(['甲', '乙'])
-    fireEvent.change(screen.getByLabelText('书架排序'), { target: { value: 'recent' } })
+    await userEvent.click(screen.getByRole('combobox', { name: '书架排序' }))
+    await userEvent.click(await screen.findByRole('option', { name: '最近使用' }))
     act(() => mocked.listeners.get('reader-book-opened')?.({ payload: { bookId: 'b', lastOpenedAt: '2026-01-06' } }))
     expect(cardTitles(container)).toEqual(['乙', '甲'])
     expect(within(container.querySelector('.reader-library-toolbar') as HTMLElement).getByText('2 本')).toBeInTheDocument()
