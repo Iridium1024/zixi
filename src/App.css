@@ -197,9 +197,6 @@ button:disabled { opacity: .48; cursor: not-allowed; filter: none; }
 .monaco-editor .diff-insert { background: color-mix(in srgb, var(--diff-insert) 18%, transparent); border-bottom: 2px solid var(--diff-insert); }
 .monaco-editor .diff-delete { background: color-mix(in srgb, var(--diff-delete) 18%, transparent); text-decoration: line-through; text-decoration-color: var(--diff-delete); }
 .monaco-editor .diff-replace { background: color-mix(in srgb, var(--diff-replace) 18%, transparent); border-bottom: 2px dashed var(--diff-replace); }
-.monaco-editor .diff-insert-glyph { border-left: 3px solid var(--diff-insert); }
-.monaco-editor .diff-delete-glyph { border-left: 3px solid var(--diff-delete); }
-.monaco-editor .diff-replace-glyph { border-left: 3px solid var(--diff-replace); }
 
 .notes-workspace { position: relative; height: 100%; min-height: 0; display: grid; grid-template-columns: clamp(240px, 22vw, 290px) minmax(320px, 1fr) clamp(250px, 22vw, 300px); }
 .note-list-panel,

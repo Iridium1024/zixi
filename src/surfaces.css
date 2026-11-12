@@ -10,8 +10,11 @@
 .storage-migration-details p { margin-block: 10px; }
 .storage-target { overflow-wrap: anywhere; user-select: text; font-weight: 600; }
 .storage-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px; }
-.manuscript-body { min-width: 0; min-height: 0; display: grid; padding-inline: 16px; background: #fcfbf8; }
-:root[data-theme='dark'] .manuscript-body { background: #2e2c29; }
+.manuscript-body { --manuscript-paper: #fcfbf8; --manuscript-gutter: #f8f6f1; min-width: 0; min-height: 0; display: grid; background: var(--manuscript-paper); }
+:root[data-theme='dark'] .manuscript-body { --manuscript-paper: #2e2c29; --manuscript-gutter: #2b2926; }
+/* Monaco reserves these insets in its own layout, so text, wraps and hit testing agree. */
+.manuscript-body .monaco-editor .margin { background-image: linear-gradient(to right, var(--manuscript-gutter) calc(100% - 16px), var(--manuscript-paper) calc(100% - 16px)); }
+.manuscript-body .monaco-editor .decorationsOverviewRuler { width: 7px !important; right: 0 !important; }
 :root {
   --interaction-hover: rgb(0 0 0 / .045);
   --interaction-selected: rgb(0 0 0 / .07);
@@ -64,13 +67,18 @@ button[aria-pressed='true']:not(.theme-option), .directory-items > button[aria-c
 .folder-filter { padding: 2px 0 4px; }
 .folder-filter select { height: 27px; background-color: transparent; border-color: transparent; padding-left: 6px; }
 .folder-form input { background-color: transparent; border-color: transparent; }
-.folder-toggle:hover, .folder-action:hover { background-color: transparent; background-image: linear-gradient(var(--interaction-hover), var(--interaction-hover)); }
-.note-list-row { display: flex; align-items: center; margin-left: 14px; min-width: 0; border-radius: 5px; }
-.note-list-row:hover { background-image: linear-gradient(var(--interaction-hover), var(--interaction-hover)); }
-.note-list-row:focus-within { background-image: linear-gradient(var(--interaction-focus), var(--interaction-focus)); }
-.note-list-row:has(> button:active) { background-image: linear-gradient(var(--interaction-pressed), var(--interaction-pressed)); }
+.folder-heading, .note-list-row { display: flex; align-items: center; width: 100%; min-height: 30px; margin: 0; min-width: 0; border-radius: 6px; }
+.folder-heading { padding: 0 6px; gap: 2px; }
+.folder-heading .folder-toggle { padding: 5px 0; min-height: 30px; }
+.folder-heading .folder-toggle > small { margin-left: 8px; margin-right: 6px; flex-shrink: 0; }
+.folder-heading .folder-action { flex-shrink: 0; }
+.folder-heading:hover, .note-list-row:hover { background-image: linear-gradient(var(--interaction-hover), var(--interaction-hover)); }
+.folder-heading:focus-within, .note-list-row:focus-within { background-image: linear-gradient(var(--interaction-focus), var(--interaction-focus)); }
+.folder-heading:has(button:active), .note-list-row:has(> button:active) { background-image: linear-gradient(var(--interaction-pressed), var(--interaction-pressed)); }
+.folder-heading > button, .folder-heading > button:hover, .folder-heading > button:focus-visible, .folder-heading > button:active { background: transparent !important; box-shadow: none; }
 .note-list-row.selected { background-image: linear-gradient(var(--interaction-selected), var(--interaction-selected)); }
 .folder-children .note-list-item, .note-list-item { display: flex; flex: 1; min-width: 0; width: 100%; min-height: 29px; margin: 0; padding: 5px 7px; gap: 7px; background-color: transparent; border: 0; box-shadow: none; }
+.folder-children .note-list-item { padding-left: 21px; }
 .note-list-item strong { display: block; min-width: 0; font-weight: 560; }
 .note-list-item.selected { background-color: transparent; border: 0; box-shadow: none; }
 .note-list-item:hover { background-color: transparent; }
@@ -237,7 +245,6 @@ button[aria-pressed='true']:not(.theme-option), .directory-items > button[aria-c
 .danger-button:hover, .danger-icon:hover, .reader-book-delete:hover { color: var(--text-primary); background-color: transparent; border-color: transparent; }
 [draggable='true'] { cursor: grab; }
 [draggable='true']:active { cursor: grabbing; }
-.note-folder-group:has(> .folder-heading:hover) { border-radius: 6px; }
 .folder-filter .ui-select { width: 100%; }
 
 .reader-library-card.directory-selected { background-color: var(--interaction-selected); }

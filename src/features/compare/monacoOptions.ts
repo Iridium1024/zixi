@@ -1,6 +1,9 @@
 import type { ComparePreferences } from './comparePreferences'
 
-/** Preserve every number digit; use one compact lane for the change markers. */
+export const MANUSCRIPT_INSET = 16
+export const MANUSCRIPT_SCROLLBAR = 7
+
+/** Preserve every number digit at the compact width; content insets are added separately. */
 export function compactGutterDecorationWidth(lineHeight: number, digitWidth: number, lineCount: number, lineNumbers: boolean, foldingWidth = 16) {
   if (!lineNumbers) return 8
   const numberWidth = Math.round(Math.max(3, String(Math.max(1, lineCount)).length) * digitWidth)

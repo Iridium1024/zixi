@@ -22,7 +22,7 @@ import { type DiffChange } from './types'
 import { useDiffWorker } from './useDiffWorker'
 import { MONACO_DARK_THEME, MONACO_LIGHT_THEME } from './monacoThemes'
 import { createBoundedLayoutScheduler, layoutEditorFromContainer } from './responsiveLayout'
-import { compactGutterDecorationWidth, monacoWrappingOptions } from './monacoOptions'
+import { compactGutterDecorationWidth, MANUSCRIPT_INSET, MANUSCRIPT_SCROLLBAR, monacoWrappingOptions } from './monacoOptions'
 import { useSaveShortcut } from '../../lib/useSaveShortcut'
 import { applyMainWindowCloseBehavior, type MainWindowCloseBehavior } from '../settings/windowBehavior'
 
@@ -51,20 +51,23 @@ interface CompareWorkspaceProps {
   onBeforeLeaveReady?: (handler: (() => Promise<boolean>) | null) => void
 }
 
-function optionsFor(change: DiffChange, side: 'left' | 'right') {
+function optionsFor(change: DiffChange, side: 'left' | 'right', colors: Record<string, string>) {
   const isLeft = side === 'left'
   const className = change.kind === 'replace' ? 'diff-replace' : isLeft ? 'diff-delete' : 'diff-insert'
-  return { inlineClassName: className, className, linesDecorationsClassName: `${className}-glyph`, overviewRuler: { color: change.kind === 'replace' ? '#d29a3a' : isLeft ? '#e36d79' : '#35b989', position: 2 }, minimap: { color: change.kind === 'replace' ? '#d29a3a' : isLeft ? '#e36d79' : '#35b989', position: 1 } }
+  const kind = change.kind === 'replace' ? 'replace' : isLeft ? 'delete' : 'insert'
+  return { inlineClassName: className, className, overviewRuler: { color: colors[kind], position: 4 } }
 }
 
 function makeDecorations(editor: MonacoEditor | null, changes: DiffChange[], side: 'left' | 'right') {
   const model = editor?.getModel()
   if (!editor || !model) return []
+  const style = getComputedStyle(document.documentElement)
+  const colors = Object.fromEntries(['insert', 'delete', 'replace'].map((kind) => [kind, style.getPropertyValue(`--diff-${kind}`).trim()]))
   return changes.flatMap((change) => {
     const sourceRange = side === 'left' ? change.leftRange : change.rightRange
     if (!sourceRange) return []
     const start = model.getPositionAt(sourceRange.start); const end = model.getPositionAt(sourceRange.end)
-    return [{ range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }, options: optionsFor(change, side) }]
+    return [{ range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }, options: optionsFor(change, side, colors) }]
   })
 }
 
@@ -272,7 +275,7 @@ export function CompareWorkspace({ statusMessage, onStatusChange, resolvedTheme,
     fontFamily: editorFontFamily, fontSize: editorFontSize, lineHeight: compareEditorLineHeight(editorFontSize),
     minimap: { enabled: false }, glyphMargin: false, lineNumbers: preferences.lineNumbers ? 'on' as const : 'off' as const,
     lineNumbersMinChars: 3, renderWhitespace: preferences.whitespace, scrollBeyondLastLine: false, smoothScrolling: true,
-    padding: { top: 18, bottom: 18 }, scrollbar: { verticalScrollbarSize: 7, horizontalScrollbarSize: 6, verticalSliderSize: 7, horizontalSliderSize: 6, verticalHasArrows: false, horizontalHasArrows: false, arrowSize: 0 }, automaticLayout: true, accessibilityPageSize: 20,
+    padding: { top: 18, bottom: 18 }, scrollbar: { verticalScrollbarSize: MANUSCRIPT_INSET + MANUSCRIPT_SCROLLBAR, horizontalScrollbarSize: 6, verticalSliderSize: MANUSCRIPT_SCROLLBAR, horizontalSliderSize: 6, verticalHasArrows: false, horizontalHasArrows: false, arrowSize: 0 }, automaticLayout: true, accessibilityPageSize: 20,
   }), [editorFontFamily, editorFontSize, preferences])
 
   const configureEditor = useCallback((editor: MonacoEditor, monaco: Monaco, side: 'left' | 'right') => {
@@ -281,7 +284,7 @@ export function CompareWorkspace({ statusMessage, onStatusChange, resolvedTheme,
     const compactGutter = () => {
       const option = monaco.editor.EditorOption
       const foldingWidth = editor.getOption(option.folding) && editor.getOption(option.showFoldingControls) !== 'never' ? 16 : 0
-      const width = compactGutterDecorationWidth(editor.getOption(option.lineHeight), editor.getOption(option.fontInfo).maxDigitWidth, editor.getModel()?.getLineCount() ?? 1, editor.getOption(option.lineNumbers).renderType !== 0, foldingWidth)
+      const width = MANUSCRIPT_INSET + compactGutterDecorationWidth(editor.getOption(option.lineHeight), editor.getOption(option.fontInfo).maxDigitWidth, editor.getModel()?.getLineCount() ?? 1, editor.getOption(option.lineNumbers).renderType !== 0, foldingWidth)
       if (editor.getOption(option.lineDecorationsWidth) !== width) editor.updateOptions({ lineDecorationsWidth: width })
     }
     compactGutter()
@@ -304,11 +307,15 @@ export function CompareWorkspace({ statusMessage, onStatusChange, resolvedTheme,
 
   useEffect(() => { localMonaco.editor.setTheme(resolvedTheme === 'dark' ? 'zixi-charcoal' : 'zixi-paper') }, [resolvedTheme])
   useEffect(() => {
-    leftDecorations.current?.set(makeDecorations(leftEditor.current, result.changes, 'left'))
-    rightDecorations.current?.set(makeDecorations(rightEditor.current, result.changes, 'right'))
+    // Parent theme effects must finish before resolving the same CSS colors as the text.
+    const frame = requestAnimationFrame(() => {
+      leftDecorations.current?.set(makeDecorations(leftEditor.current, result.changes, 'left'))
+      rightDecorations.current?.set(makeDecorations(rightEditor.current, result.changes, 'right'))
+    })
     setActiveIndex((current) => Math.min(current, Math.max(result.changes.length - 1, 0)))
     onStatusChange?.(isCalculating ? '正在计算差异…' : `${result.stats.totalChanges} 处差异 · ${result.durationMs.toFixed(1)} ms`)
-  }, [isCalculating, onStatusChange, result])
+    return () => cancelAnimationFrame(frame)
+  }, [isCalculating, onStatusChange, resolvedTheme, result])
 
   const revealChange = useCallback((index: number) => {
     const count = result.changes.length; if (!count) return
