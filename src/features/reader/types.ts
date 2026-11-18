@@ -33,6 +33,8 @@ export interface TextBookCandidate {
 export interface ReaderBookContent { book: ReaderBook; content: string }
 
 export interface ReaderPreferences {
+  hideTitlebar: boolean
+  shortcuts: import('./readerShortcuts').ReaderShortcuts
   fontSize: number
   lineHeight: number
   fontFamily: 'serif' | 'sans'

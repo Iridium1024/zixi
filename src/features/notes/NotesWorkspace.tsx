@@ -7,7 +7,6 @@ import { ViewStatus, isFailureStatus } from '../../components/ViewStatus'
 import {
   ArchiveRestore,
   ListChecks,
-  CheckCheck,
   Square,
   AlertTriangle,
   Clipboard,
@@ -319,10 +318,7 @@ export function NotesWorkspace({ statusMessage, appearance, windowBehavior, tras
       return
     }
     if (!trashMode) { setNoteMultiSelection(false); setSelectedNoteIds(new Set([id])) }
-    if (trashMode && selectionMode) {
-      setSelectedTrashIds((current) => toggleTrashSelection(current, id))
-      return
-    }
+    if (trashMode) { setSelectionMode(false); setSelectedTrashIds(new Set([id])) }
     if (id === selectedId || leavingRef.current || busy) return
     if (conflict || externalConflict) { setSaveError('请先处理便签冲突，再切换便签'); return }
     leavingRef.current = true
@@ -434,11 +430,6 @@ export function NotesWorkspace({ statusMessage, appearance, windowBehavior, tras
       setSaveError('恢复失败，请重试')
       onStatusChange?.('便签恢复失败，回收站内容未丢失')
     } finally { setBusy('') }
-  }
-
-  function exitSelectionMode() {
-    setSelectionMode(false)
-    setSelectedTrashIds(new Set())
   }
 
   async function restoreSelectedTrashNotes() {
@@ -596,8 +587,8 @@ export function NotesWorkspace({ statusMessage, appearance, windowBehavior, tras
           <button className="ghost-icon" disabled={Boolean(busy) || leaving} onClick={() => setSearchOpen(true)} aria-label={trashMode ? '搜索回收站' : '搜索便签'} title={trashMode ? (trashQuery ? `搜索回收站：${trashQuery}` : '搜索回收站') : '搜索便签'}><Search size={16} /></button>
           {trashMode ? <>
             {trashQuery && <button className="ghost-icon" aria-label="清除回收站筛选" title="清除回收站筛选" onClick={() => setTrashQuery('')}><X size={15} /></button>}
-            <button className="ghost-icon" aria-pressed={selectionMode} aria-label={selectionMode ? '退出选择' : '选择'} title={selectionMode ? `退出选择（已选 ${selectedTrashCount} 项）` : '选择回收站项目'} disabled={!notes.length || Boolean(busy)} onClick={() => selectionMode ? exitSelectionMode() : setSelectionMode(true)}><ListChecks size={16} /></button>
-            {selectionMode && <><button className="ghost-icon" title="全选当前筛选结果" aria-label="全选当前筛选结果" disabled={!visibleNotes.length || Boolean(busy)} onClick={() => setSelectedTrashIds(selectFilteredTrashIds(visibleNotes.map((note) => note.id)))}><CheckCheck size={16} /></button><button className="ghost-icon" title="取消全选" aria-label="取消全选" disabled={!selectedTrashCount || Boolean(busy)} onClick={() => setSelectedTrashIds(new Set())}><Square size={16} /></button></>}
+            <button className="ghost-icon" aria-label="全选回收站项目" title="全选回收站项目" disabled={!notes.length || Boolean(busy)} onClick={() => { setSelectionMode(true); setSelectedTrashIds(selectFilteredTrashIds(visibleNotes.map(note => note.id))) }}><ListChecks size={16} /></button>
+            {selectionMode && <><button className="ghost-icon" title="取消全选" aria-label="取消全选" disabled={!selectedTrashCount || Boolean(busy)} onClick={() => setSelectedTrashIds(new Set())}><Square size={16} /></button></>}
             <button className="ghost-icon" aria-label={selectionMode ? '恢复所选' : '恢复便签'} title={selectionMode ? `恢复所选 ${selectedTrashCount} 项` : '恢复当前便签'} disabled={Boolean(busy) || (selectionMode ? !selectedTrashCount : !draft)} onClick={selectionMode ? restoreSelectedTrashNotes : restoreSelected}><ArchiveRestore size={16} /></button>
           </> : <><button className="ghost-icon" disabled={Boolean(busy) || leaving} onClick={() => folderDirectory.current?.create()} aria-label="新建文件夹" title="新建文件夹"><FolderPlus size={16} /></button><button className="ghost-icon" disabled={Boolean(busy) || leaving} onClick={addNote} aria-label="新建便签" title="在主窗口新建便签"><Plus size={18} /></button></>}
           {deleteControl()}
@@ -608,8 +599,7 @@ export function NotesWorkspace({ statusMessage, appearance, windowBehavior, tras
         </>}
         {trashMode && <div className="note-list">
           {orderItems(visibleNotes, folderState.orders?.trash).map((note) => (
-            <button key={note.id} data-note-id={note.id} disabled={Boolean(busy) || leaving} aria-pressed={trashMode && selectionMode ? selectedTrashIds.has(note.id) : undefined} className={`note-list-item ${(!selectionMode && selectedId === note.id) ? 'selected' : ''} ${trashMode && selectionMode ? 'trash-selectable' : ''} ${trashMode && selectionMode && selectedTrashIds.has(note.id) ? 'batch-selected' : ''}`} onClick={(event) => void selectNote(note.id, event.ctrlKey || event.metaKey)} draggable={!busy && !leaving} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData(DIRECTORY_DRAG, JSON.stringify({ kind: 'trash', ids: selectedTrashIds.has(note.id) ? [...selectedTrashIds] : [note.id] })) }} onDragOver={(event) => { if (!busy && event.dataTransfer.types.includes(DIRECTORY_DRAG)) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); void dropTrash(event.dataTransfer, note.id, event.clientY > rect.top + rect.height / 2) }}>
-              {trashMode && selectionMode && <span className="trash-selection-check" aria-hidden="true">{selectedTrashIds.has(note.id) ? '✓' : ''}</span>}
+            <button key={note.id} data-note-id={note.id} disabled={Boolean(busy) || leaving} aria-pressed={trashMode && selectionMode ? selectedTrashIds.has(note.id) : undefined} className={`note-list-item ${(!selectionMode && selectedId === note.id) ? 'selected' : ''}  ${trashMode && selectionMode && selectedTrashIds.has(note.id) ? 'batch-selected' : ''}`} onClick={(event) => void selectNote(note.id, event.ctrlKey || event.metaKey)} draggable={!busy && !leaving} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData(DIRECTORY_DRAG, JSON.stringify({ kind: 'trash', ids: selectedTrashIds.has(note.id) ? [...selectedTrashIds] : [note.id] })) }} onDragOver={(event) => { if (!busy && event.dataTransfer.types.includes(DIRECTORY_DRAG)) event.preventDefault() }} onDrop={(event) => { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); void dropTrash(event.dataTransfer, note.id, event.clientY > rect.top + rect.height / 2) }}>
               <span data-tooltip-overflow title={note.title || '未命名便签'}><strong>{note.title || '未命名便签'}</strong></span>
             </button>
           ))}
@@ -619,7 +609,7 @@ export function NotesWorkspace({ statusMessage, appearance, windowBehavior, tras
 
       <main className="note-detail-panel">
         {indexPrompt && <NoteIndexPrompt newNote={indexPrompt.newNote} onCancel={() => { setIndexPrompt(null); setBusy('') }} onCopySaved={() => { void copyIndex(false, indexPrompt.noteId) }} onSaveAndCopy={() => { void copyIndex(true, indexPrompt.noteId) }} />}
-        {trashMode && selectionMode ? <div className="detail-empty trash-selection-empty"><StickyNote size={32} /><p>正在选择回收站项目</p><small>普通点击会勾选或取消勾选，不会切换当前详情。</small><ViewStatus message={displayedSaveError} /></div> : draft ? (
+        {draft ? (
           <section className="note-paper" aria-label="便签内容" style={{ '--note-paper-background': `${draft.style.backgroundColor}${Math.round((appearance.accessibility.reduceTransparency ? 1 : draft.style.backgroundOpacity) * 255).toString(16).padStart(2, '0')}`, '--note-paper-ink': draft.style.textColor, color: draft.style.textColor } as CSSProperties}>
             <header className="note-detail-toolbar">
               <span className="note-folder-hint" tabIndex={0} role="img" aria-label={`所属文件夹：${currentFolderName}`} data-tooltip={currentFolderName}><Folder size={16} /></span>

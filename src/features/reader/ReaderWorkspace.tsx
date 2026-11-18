@@ -1,3 +1,6 @@
+import { ReaderShortcutSettings } from './ReaderShortcutSettings'
+import { readerAction } from './readerShortcuts'
+import { Popconfirm } from '../../components/Popconfirm'
 import { useObjectDirectory } from '../../lib/useObjectDirectory'
 import { SelectControl, RangeControl, CheckControl } from '../../components/FormControls'
 import { ViewStatus } from '../../components/ViewStatus'
@@ -327,12 +330,13 @@ export function ReaderWorkspace({ statusMessage, onStatusChange, preferences, on
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (event.isComposing || target?.closest('input, textarea, select, button, [contenteditable="true"]') || !active) return
-      if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.repeat) {
-        const next = adjacentChapterBlockIndex(documentModel.blocks, blockIndex, event.key === 'ArrowRight' ? 1 : -1)
+      const action = readerAction(event, preferences.shortcuts)
+      if ((action === 'previousChapter' || action === 'nextChapter') && !event.repeat) {
+        const next = adjacentChapterBlockIndex(documentModel.blocks, blockIndex, action === 'nextChapter' ? 1 : -1)
         if (next !== null) { event.preventDefault(); moveToBlock(next) }
         return
       }
-      const direction = keyboardReaderDirection(event.key, event.shiftKey, preferences.readingMode)
+      const direction = action === 'nextPage' ? 1 : action === 'previousPage' ? -1 : action ? null : !event.ctrlKey && !event.altKey && !event.metaKey && ['PageUp', 'PageDown', ' '].includes(event.key) ? keyboardReaderDirection(event.key, event.shiftKey, preferences.readingMode) : null
       if (!direction) return
       event.preventDefault(); movePage(direction)
     }
@@ -396,7 +400,7 @@ export function ReaderWorkspace({ statusMessage, onStatusChange, preferences, on
 
   return <section className="reader-workspace standalone minimal">
     <main className="reader-main-panel">
-      <header className="reader-titlebar"><div className="reader-titlebar-drag" data-tauri-drag-region title="拖动阅读窗口；双击最大化或还原"><span data-tauri-drag-region>{active?.book.title ?? '独立阅读'}</span></div><button aria-label={panelOpen ? '隐藏阅读控制面板' : '显示阅读控制面板'} title={panelOpen ? '隐藏阅读控制面板' : '显示阅读控制面板'} aria-expanded={panelOpen} aria-controls="reader-control-panel" onClick={() => onPanelOpenChange?.(!panelOpen)}><PanelRightOpen size={17} /></button><button aria-label="最小化阅读窗口" title="最小化" onClick={onMinimize}><Minus size={16} /></button><button aria-label="最大化或还原阅读窗口" title="最大化或还原" onClick={onToggleMaximize}><Maximize2 size={15} /></button><button className="window-close-button" aria-label="关闭阅读窗口" title="关闭阅读窗口" onClick={onRequestClose}><X size={16} /></button></header>
+      {!preferences.hideTitlebar && <header className="reader-titlebar"><div className="reader-titlebar-drag" data-tauri-drag-region title="拖动阅读窗口；双击最大化或还原"><span data-tauri-drag-region>{active?.book.title ?? '独立阅读'}</span></div><button aria-label={panelOpen ? '隐藏阅读控制面板' : '显示阅读控制面板'} title={panelOpen ? '隐藏阅读控制面板' : '显示阅读控制面板'} aria-expanded={panelOpen} aria-controls="reader-control-panel" onClick={() => onPanelOpenChange?.(!panelOpen)}><PanelRightOpen size={17} /></button><button aria-label="最小化阅读窗口" title="最小化" onClick={onMinimize}><Minus size={16} /></button><button aria-label="最大化或还原阅读窗口" title="最大化或还原" onClick={onToggleMaximize}><Maximize2 size={15} /></button><button className="window-close-button" aria-label="关闭阅读窗口" title="关闭阅读窗口" onClick={onRequestClose}><X size={16} /></button></header>}
       {initializing ? <div className="reader-state"><LoaderCircle className="reader-spinner" size={28} /><p>正在读取书库…</p></div> : active && block ? <>
         <div ref={viewportRef} className={`reader-scroll-viewport ${preferences.readingMode === 'paged' ? 'paged' : ''}`} onScroll={handleScroll} onWheel={handleWheel} tabIndex={0} aria-label={`${active.book.title}正文`}>
           <article ref={articleRef} className={`reader-document reader-font-${preferences.fontFamily} ${preferences.textShadow ? 'with-text-shadow' : ''}`} style={{ fontSize: `${preferences.fontSize}px`, lineHeight: preferences.lineHeight, color: preferences.textColor || 'var(--text-primary)', ['--reader-content-width' as string]: `${preferences.contentWidth}px`, ['--reader-indent' as string]: preferences.firstLineIndent }}>
@@ -408,19 +412,20 @@ export function ReaderWorkspace({ statusMessage, onStatusChange, preferences, on
       {active ? <div className="reader-progress-track" aria-hidden="true"><span style={{ width: `${displayProgress * 100}%` }} /></div> : null}
     </main>
     <aside id="reader-control-panel" className={`reader-control-panel ${panelOpen ? 'open' : ''}`} aria-hidden={!panelOpen} inert={!panelOpen}>
-      <header><div><small>{active ? `${Math.round(displayProgress * 100)}% · ${active.book.encoding}` : '独立阅读'}</small><strong>{active?.book.title ?? '正在载入'}</strong></div><button className="icon-only-button" aria-label="关闭控制面板" onClick={() => onPanelOpenChange?.(false)}><X size={17} /></button></header>
+      <header><div data-tauri-drag-region><small data-tauri-drag-region>{active ? `${Math.round(displayProgress * 100)}% · ${active.book.encoding}` : '独立阅读'}</small><strong data-tauri-drag-region>{active?.book.title ?? '正在载入'}</strong></div><div className="reader-panel-window-actions">{preferences.hideTitlebar && <><button className="ghost-icon" aria-label="最小化阅读窗口" onClick={onMinimize}><Minus size={14} /></button><button className="ghost-icon" aria-label="最大化或还原阅读窗口" onClick={onToggleMaximize}><Maximize2 size={14} /></button><button className="ghost-icon" aria-label="关闭阅读窗口" onClick={onRequestClose}><X size={14} /></button></>}<button className="icon-only-button" aria-label="关闭控制面板" onClick={() => onPanelOpenChange?.(false)}><X size={17} /></button></div></header>
       <section><h3><Type size={15} />阅读排版</h3>
         <label>阅读方式<SelectControl aria-label="阅读方式" value={preferences.readingMode} onChange={(event) => changeMode(event.target.value as ReaderPreferences['readingMode'])}><option value="chapter-scroll">局部滚动</option><option value="paged">单页分页</option></SelectControl></label>
         <label>字号<RangeControl aria-label="字号"  min="14" max="32" value={preferences.fontSize} onChange={(event) => onPreferencesChange({ ...preferences, fontSize: Number(event.target.value) })} /><output>{preferences.fontSize}px</output></label>
         <label>行距<SelectControl aria-label="行距" value={preferences.lineHeight} onChange={(event) => onPreferencesChange({ ...preferences, lineHeight: Number(event.target.value) })}><option value="1.55">紧凑</option><option value="1.9">舒适</option><option value="2.2">宽松</option></SelectControl></label>
         <label>字体<SelectControl aria-label="字体" value={preferences.fontFamily} onChange={(event) => onPreferencesChange({ ...preferences, fontFamily: event.target.value as ReaderPreferences['fontFamily'] })}><option value="serif">宋体</option><option value="sans">黑体</option></SelectControl></label>
         <label>首行缩进<RangeControl aria-label="首行缩进"  min="0" max="8" step="1" value={preferences.firstLineIndent} onChange={(event) => onPreferencesChange({ ...preferences, firstLineIndent: Number(event.target.value) })} /><output>{preferences.firstLineIndent} 字</output></label>
-        <label>背景不透明度<RangeControl aria-label="背景不透明度"  min="0" max="1" step="0.02" value={preferences.backgroundOpacity} onChange={(event) => onPreferencesChange({ ...preferences, backgroundOpacity: Number(event.target.value) })} /><output>{Math.round(preferences.backgroundOpacity * 100)}%</output></label>
+        <label>页面透明度<RangeControl aria-label="页面透明度"  min="0" max="1" step="0.02" value={1 - preferences.backgroundOpacity} onChange={(event) => onPreferencesChange({ ...preferences, backgroundOpacity: 1 - Number(event.target.value) })} /><output>{Math.round((1 - preferences.backgroundOpacity) * 100)}%</output></label>
         <label>文字颜色<input type="color" value={preferences.textColor || '#2f2b27'} onChange={(event) => onPreferencesChange({ ...preferences, textColor: event.target.value })} /><button className="reader-color-reset" onClick={() => onPreferencesChange({ ...preferences, textColor: '' })}>跟随主题</button></label>
         <label className="reader-panel-check"><CheckControl aria-label="复杂背景下增加文字阴影"  checked={preferences.textShadow} onChange={(event) => onPreferencesChange({ ...preferences, textShadow: event.target.checked })} />复杂背景下增加文字阴影</label>
       </section>
       <section className="reader-panel-toc"><h3><ListTree size={15} />目录 <span>{documentModel.toc.length || '—'}</span></h3>{documentModel.toc.length > 0 ? <nav>{documentModel.toc.map((entry) => <button key={entry.id} onClick={() => { jumpToToc(entry.offset); onPanelOpenChange?.(false) }}>{entry.title}</button>)}</nav> : <p>未识别到章节标题；左右方向键不会把内部区块伪装成章节。</p>}</section>
-      <div className="reader-keyboard-help"><strong>快捷键</strong><small>↑/↓ 翻页或滚屏 · ←/→ 切章 · Esc 关闭面板/窗口 · B 临时隐藏</small></div>
+      <section className="reader-window-settings"><h3>窗口</h3>{preferences.hideTitlebar ? <label className="reader-panel-check"><CheckControl aria-label="隐藏独立窗口标题栏" checked onChange={() => onPreferencesChange({ ...preferences, hideTitlebar: false })} />隐藏独立窗口标题栏</label> : <Popconfirm title="隐藏阅读标题栏" description={`隐藏后请按 ${preferences.shortcuts.panel} 唤出控制面板；窗口未聚焦时可使用设置中的全局唤出快捷键，或从托盘恢复阅读窗口。`} confirmLabel="确认隐藏标题栏" onConfirm={async () => { onPreferencesChange({ ...preferences, hideTitlebar: true }); return true }} trigger={<button className="reader-titlebar-hide-toggle" role="checkbox" aria-checked={false}><span className="reader-check-outline" aria-hidden="true" />隐藏独立窗口标题栏</button>} />}</section>
+      <ReaderShortcutSettings value={preferences.shortcuts} reservedShortcut={preferences.restoreShortcut.replace('Control', 'Ctrl')} onChange={shortcuts => onPreferencesChange({ ...preferences, shortcuts })} />
     </aside>
     {candidate ? <ImportDialog candidate={candidate} onCancel={() => setCandidate(null)} onImported={(bookItem) => void finishImport(bookItem)} onStatusChange={onStatusChange} /> : null}
     {deleteCandidate ? <div className="reader-dialog-backdrop" role="presentation"><section className="reader-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="reader-delete-title"><Trash2 size={24} /><h2 id="reader-delete-title">从书库删除《{deleteCandidate.title}》？</h2><p>将删除书库记录、阅读进度和应用管理的副本。你最初导入的 TXT 文件不会被修改。</p><footer><button className="secondary-button" disabled={deleting} onClick={() => setDeleteCandidate(null)}>取消</button><button className="danger-button" disabled={deleting} onClick={() => void confirmDelete()}>{deleting ? <LoaderCircle className="reader-spinner" size={16} /> : <Trash2 size={16} />}删除书籍</button></footer></section></div> : null}

@@ -1,10 +1,13 @@
 import { loadSetting, saveSetting } from '../settings/settingsRepository'
 import type { ReaderPreferences } from './types'
+import { DEFAULT_READER_SHORTCUTS, normalizeShortcuts } from './readerShortcuts'
 
 const CACHE_KEY = 'zixi.reader.preferences.v4'
 const LEGACY_CACHE_KEY = 'zixi.reader.preferences.v2'
 const LEGACY_V3_CACHE_KEY = 'zixi.reader.preferences.v3'
 export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
+  hideTitlebar: false,
+  shortcuts: DEFAULT_READER_SHORTCUTS,
   fontSize: 20,
   lineHeight: 1.9,
   fontFamily: 'serif',
@@ -29,6 +32,8 @@ export function normalizeReaderPreferences(value: unknown): ReaderPreferences {
   const lineHeight = typeof input.lineHeight === 'number' ? Math.min(2.4, Math.max(1.4, input.lineHeight)) : 1.9
   const contentWidth = input.contentWidth === 640 || input.contentWidth === 880 ? input.contentWidth : 760
   return {
+    hideTitlebar: input.hideTitlebar === true,
+    shortcuts: normalizeShortcuts(input.shortcuts),
     fontSize,
     lineHeight,
     fontFamily: input.fontFamily === 'sans' ? 'sans' : 'serif',
