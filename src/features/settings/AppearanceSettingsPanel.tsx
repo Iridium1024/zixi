@@ -261,7 +261,7 @@ export function AppearanceSettingsPanel({
 
   return (
     <section className="settings-view" id="settings-view">
-      {unifiedNavigation && <WorkspaceNavigation><aside className="settings-directory" aria-label="设置目录"><header><strong>设置</strong></header><div className="directory-items">{['主题', 'TXT 阅读器', '独立便签', '独立窗口与主窗口', '高级比较', '本地背景图', '应用字体', '数据与备份'].map((label) => <button key={label} onClick={() => {
+      {unifiedNavigation && <WorkspaceNavigation><aside className="settings-directory" aria-label="设置目录"><header><strong>设置</strong></header><div className="directory-items">{['主题', '思维导图', 'TXT 阅读器', '独立便签', '独立窗口与主窗口', '高级比较', '本地背景图', '应用字体', '数据与备份'].map((label) => <button key={label} onClick={() => {
         const heading = [...document.querySelectorAll('#settings-view h2')].find((item) => item.textContent === label)
         const section = heading?.closest('.settings-section')
         if (section instanceof HTMLDetailsElement) section.open = true
@@ -291,6 +291,19 @@ export function AppearanceSettingsPanel({
           <label className="setting-row switch-row"><span><strong>增强对比度</strong><small>独立于主题模式，加粗边界与焦点</small></span><CheckControl aria-label="增强对比度" switch  checked={appearance.accessibility.increasedContrast} onChange={(event) => update({ accessibility: { ...appearance.accessibility, increasedContrast: event.target.checked } })} /></label>
           <label className="setting-row switch-row"><span><strong>减少透明效果</strong><small>关闭背景模糊并使用完全不透明表面</small></span><CheckControl aria-label="减少透明效果" switch  checked={appearance.accessibility.reduceTransparency} onChange={(event) => update({ accessibility: { ...appearance.accessibility, reduceTransparency: event.target.checked } })} /></label>
           <label className="setting-row switch-row"><span><strong>减少动态效果</strong><small>同时响应系统的“减少动画”偏好</small></span><CheckControl aria-label="减少动态效果" switch  checked={appearance.accessibility.reduceMotion} onChange={(event) => update({ accessibility: { ...appearance.accessibility, reduceMotion: event.target.checked } })} /></label>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading"><div><h2>思维导图</h2></div></div>
+        <div className="setting-rows">
+          <label className="setting-row">
+            <span><strong>导图样式</strong><small>应用于所有导图，已打开的独立窗口会立即更新</small></span>
+            <SelectControl aria-label="导图样式" value={appearance.mindMapTemplate} onChange={(event) => update({ mindMapTemplate: event.target.value === 'classic' ? 'classic' : 'current' })}>
+              <option value="current">当前样式 · 共用分支线</option>
+              <option value="classic">原版样式 · 曲线分支</option>
+            </SelectControl>
+          </label>
         </div>
       </section>
 

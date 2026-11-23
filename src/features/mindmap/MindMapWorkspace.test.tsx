@@ -10,7 +10,7 @@ vi.mock('./mindMapIndex', () => ({ copyMindMapIndex: mocked.copy, applyMindMapSn
 vi.mock('./MindMapCanvas', async () => {
   const React = await import('react')
   return { MindMapCanvas: React.forwardRef(function MockCanvas({ onChange }: { onChange(data: string): void }, ref) {
-    React.useImperativeHandle(ref, () => ({ commit() {}, addChild() {}, addSibling() {}, edit() {}, remove() {}, undo() {}, redo() {}, center() {}, fit() {} }))
+    React.useImperativeHandle(ref, () => ({ commit() {}, addChild() {}, addSibling() {}, edit() {}, remove() {}, undo() {}, redo() {}, center() {}, fit() {}, openSearch() {} }))
     return <button onClick={() => onChange('{"nodeData":{"id":"root","topic":"修改"}}')}>模拟节点变更</button>
   }) }
 })

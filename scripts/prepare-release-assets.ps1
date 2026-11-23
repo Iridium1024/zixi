@@ -68,7 +68,7 @@ foreach ($asset in $sources) {
         throw "Release bundle not found: $($asset.Source)"
     }
 }
-$stagingRoot = Join-Path $projectRoot ('src-tauri/target/release/portable-staging/' + [guid]::NewGuid().ToString('N'))
+$stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ('Zixi-portable-' + [guid]::NewGuid().ToString('N'))
 & (Join-Path $PSScriptRoot 'prepare-portable.ps1') -Destination $stagingRoot
 $portableName = "Zixi-${Version}-Windows-x64-Portable.zip"
 $portablePath = Join-Path $assetDirectory $portableName

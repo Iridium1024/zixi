@@ -13,10 +13,12 @@
 | `docs/` | 随源码维护的说明及截图 |
 | `docs/local/` | 上传文件清单、本地执行记录与历史资料，不提交到公开仓库 |
 | `.github/` | 发布工作流及发布说明模板 |
-| `node_modules/`、`dist/`、`src-tauri/target/` | 依赖与正常构建缓存，不作为交付包上传 |
+| `node_modules/`、`dist/`、`src-tauri/target/` | 依赖与构建产物。日常启动使用根目录的 `zixi.exe` |
 
 根目录的 package、TypeScript、Vite、ESLint 等配置保留在工具预期的位置，不为视觉整洁迁移它们。
 
 发布使用 `npm run release:build`；已有正式构建时用 `npm run release:stage` 更新本地入口和发布包。快捷方式仅在用户主动运行 `scripts/Create Desktop Shortcut.cmd` 时创建。
+
+同一版本的安装器、MSI 和免安装包集中放在 `releases/v<版本>/`。免安装包的临时打包和验收解压目录位于系统临时目录。
 
 免安装 ZIP 仅包含可运行程序、字体、许可证、启动说明和可选工具，不包含源码、依赖缓存、执行报告或用户数据库。用户资料默认位于应用 AppData 目录；v0.3.0 起可在设置中迁移到所选资料目录，启动定位配置与 WebView 数据保留在系统目录。

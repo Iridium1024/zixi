@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     watch: {
-      // Rust links DLLs atomically on Windows; watching target can crash Vite with EBUSY.
-      ignored: ['**/src-tauri/target/**', '**/.tauri-*-target/**'],
+      // Build and packaging tools briefly lock these outputs on Windows.
+      ignored: ['**/src-tauri/target/**', '**/.tauri-*-target/**', '**/releases/**', '**/zixi.exe'],
     },
   },
 })

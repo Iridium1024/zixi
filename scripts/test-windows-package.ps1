@@ -21,7 +21,7 @@ try {
 } finally { $zip.Dispose() }
 
 # An isolated extraction also covers spaces in shortcut paths; no real Desktop writes.
-$testRoot = Join-Path $projectRoot ('src-tauri/target/release/package-tests/Extracted folder ' + [guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path ([IO.Path]::GetTempPath()) ('Zixi test extraction ' + [guid]::NewGuid().ToString('N'))
 [IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $testRoot)
 foreach ($rel in @('zixi.exe', 'fonts/NotoSerifSC-VariableFont_wght.ttf', 'fonts/OFL.txt')) {
     if ((Get-PackageFileHash -LiteralPath (Join-Path $testRoot $rel)).Hash -ne

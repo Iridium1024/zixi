@@ -1,5 +1,6 @@
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type ResolvedTheme = 'light' | 'dark'
+export type MindMapTemplate = 'current' | 'classic'
 export type BackgroundFit = 'cover' | 'contain' | 'native'
 export type ManagedAssetKind = 'background' | 'font'
 export type FontFormat = 'woff2' | 'woff' | 'ttf' | 'otf'
@@ -31,6 +32,7 @@ export interface ImportedFontRecord {
 export interface AppearanceSettings {
   version: 4
   themeMode: ThemeMode
+  mindMapTemplate: MindMapTemplate
   uiFontSize: number
   compareEditorFontSize: number
   accent: string
@@ -68,6 +70,7 @@ export const BUNDLED_SERIF_STACK = `'${BUNDLED_FONT_FAMILY}', 'Noto Serif CJK SC
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: 4,
   themeMode: 'system',
+  mindMapTemplate: 'current',
   uiFontSize: 14,
   compareEditorFontSize: 15,
   accent: '#786aa3',
@@ -194,6 +197,7 @@ export function normalizeAppearance(value: unknown): AppearanceSettings {
   return {
     version: 4,
     themeMode,
+    mindMapTemplate: input.mindMapTemplate === 'classic' ? 'classic' : DEFAULT_APPEARANCE.mindMapTemplate,
     uiFontSize: clamp(input.uiFontSize, 12, 22, DEFAULT_APPEARANCE.uiFontSize),
     compareEditorFontSize: clampInteger(
       input.compareEditorFontSize,

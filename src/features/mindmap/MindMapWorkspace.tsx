@@ -2,11 +2,12 @@ import { DirectoryHeader } from '../../components/DirectoryHeader'
 import { useObjectDirectory } from '../../lib/useObjectDirectory'
 import { ViewStatus, isFailureStatus } from '../../components/ViewStatus'
 import { WorkspaceNavigation, useUnifiedNavigation } from '../../components/WorkspaceNavigation'
-import { Clipboard, CornerDownRight, Crosshair, ExternalLink, FileInput, GitBranchPlus, Maximize, Pencil, Plus, Redo2, Save, Trash2, Undo2 } from 'lucide-react'
+import { Clipboard, CornerDownRight, Crosshair, ExternalLink, FileInput, GitBranchPlus, Maximize, Pencil, Plus, Redo2, Save, Search, Trash2, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { pickMindMapCollaborationFile } from '../../lib/collaborationSnapshot'
 import { isTauriRuntime } from '../../lib/platform'
 import { useSaveShortcut } from '../../lib/useSaveShortcut'
+import type { MindMapTemplate } from '../settings/appearance'
 import { MindMapCanvas, type MindMapCanvasHandle } from './MindMapCanvas'
 import { applyMindMapSnapshot, copyMindMapIndex } from './mindMapIndex'
 import { subscribeMindMapEvents, type MindMapEvent } from './mindMapEvents'
@@ -16,12 +17,13 @@ import license from './mind-elixir-license.txt?raw'
 interface Props {
   statusMessage?: string
   theme: 'light' | 'dark'
+  template?: MindMapTemplate
   onStatusChange?(status: string): void
   onBeforeLeaveReady?(handler: (() => Promise<boolean>) | null): void
   standaloneId?: string
 }
 
-export function MindMapWorkspace({ statusMessage, theme, onStatusChange, onBeforeLeaveReady, standaloneId }: Props) {
+export function MindMapWorkspace({ statusMessage, theme, template = 'current', onStatusChange, onBeforeLeaveReady, standaloneId }: Props) {
   const unifiedNavigation = useUnifiedNavigation()
   const [maps, setMaps] = useState<MindMapRecord[]>([])
   const [draft, setDraft] = useState<MindMapRecord | null>(null)
@@ -319,6 +321,7 @@ export function MindMapWorkspace({ statusMessage, theme, onStatusChange, onBefor
   }
 
   const displayedStatus = statusMessage && isFailureStatus(statusMessage) ? statusMessage : status
+  const searchEnabled = !busy && !prompt && !conflict
   return (
     <div className={`mind-map-workspace ${standaloneId || unifiedNavigation ? 'standalone' : ''}`}>
       {!standaloneId && <WorkspaceNavigation><aside className="mind-map-list" aria-label="导图列表">
@@ -346,9 +349,10 @@ export function MindMapWorkspace({ statusMessage, theme, onStatusChange, onBefor
             <button className="square-button" disabled={busy || Boolean(prompt)} onClick={() => canvasRef.current?.redo()} aria-label="重做" title="重做"><Redo2 size={15} /></button>
             <button className="square-button" disabled={busy || Boolean(prompt)} onClick={() => canvasRef.current?.center()} aria-label="居中画布" title="居中画布"><Crosshair size={15} /></button>
             <button className="square-button" disabled={busy || Boolean(prompt)} onClick={() => canvasRef.current?.fit()} aria-label="适应画布" title="适应画布"><Maximize size={15} /></button>
+            <button className="square-button" disabled={!searchEnabled} onClick={() => canvasRef.current?.openSearch()} aria-label="查找节点" title="查找节点 (Ctrl+F)"><Search size={15} /></button>
             <small>双击节点编辑 · Tab 添加子节点 · 拖动调整顺序</small>
           </div>
-          <div className="mind-map-editor" aria-busy={busy}><MindMapCanvas key={`${draft.id}:${canvasRevision}`} ref={canvasRef} initialData={draft.dataJson} theme={theme} onChange={(dataJson) => updateDraft({ dataJson })} onBackground={() => { void flush().catch(reportFailure) }} />{(busy || prompt) && <div className="mind-map-editor-blocker" />}{conflict && <div className="mind-map-conflict" role="alert"><span>另一窗口已更新或删除导图。本地草稿仍保留；请另存草稿或重新载入。</span><button className="secondary-button" disabled={busy} onClick={() => void resolveConflict(true)}>草稿另存为新导图</button><button className="secondary-button" disabled={busy} onClick={() => showPrompt('reload')}>重新载入</button></div>}</div>
+          <div className="mind-map-editor" aria-busy={busy}><MindMapCanvas key={`${draft.id}:${canvasRevision}`} ref={canvasRef} initialData={draft.dataJson} theme={theme} template={template} searchEnabled={searchEnabled} onChange={(dataJson) => updateDraft({ dataJson })} onBackground={() => { void flush().catch(reportFailure) }} />{(busy || prompt) && <div className="mind-map-editor-blocker" />}{conflict && <div className="mind-map-conflict" role="alert"><span>另一窗口已更新或删除导图。本地草稿仍保留；请另存草稿或重新载入。</span><button className="secondary-button" disabled={busy} onClick={() => void resolveConflict(true)}>草稿另存为新导图</button><button className="secondary-button" disabled={busy} onClick={() => showPrompt('reload')}>重新载入</button></div>}</div>
         </> : <div className="detail-empty"><GitBranchPlus size={32} /><ViewStatus message={displayedStatus} />{!standaloneId && <button className="primary-button" disabled={busy} onClick={() => void selectOrCreate()}><Plus size={16} />新建导图</button>}</div>}
         {prompt === 'index' && <div className="note-close-dialog-backdrop"><div className="note-close-dialog note-index-dialog" role="alertdialog" aria-modal="true" aria-labelledby="mind-index-title"><strong id="mind-index-title">保存更改后复制副本路径？</strong><p>将生成已保存导图的 JSON 副本；副本不会自动更新，外部修改需要手动应用。自动保存仍会继续。</p><div><button className="secondary-button" onClick={() => showPrompt(null)}>取消</button><button className="secondary-button" onClick={() => void copyIndex(false)}>复制已保存版本</button><button className="primary-button" onClick={() => void copyIndex(true)}>保存并复制</button></div></div></div>}
         {prompt === 'delete' && <div className="note-close-dialog-backdrop"><div className="note-close-dialog" role="alertdialog" aria-modal="true" aria-labelledby="mind-delete-title"><strong id="mind-delete-title">删除这张导图？</strong><p>此操作会永久删除这张导图，无法从便签回收站恢复。</p><div><button className="secondary-button" onClick={() => showPrompt(null)}>取消</button><button className="danger-button" onClick={() => void removeMap()}>永久删除</button></div></div></div>}

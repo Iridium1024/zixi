@@ -2,7 +2,7 @@ import { Maximize2, Minus, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { WindowResizeEdges } from '../../components/WindowResizeEdges'
 import { isTauriRuntime } from '../../lib/platform'
-import { normalizeAppearance, readCachedAppearance } from '../settings/appearance'
+import { APPEARANCE_STORAGE_KEY, normalizeAppearance, readCachedAppearance } from '../settings/appearance'
 import { loadSetting } from '../settings/settingsRepository'
 import { useAppearanceRuntime } from '../settings/useAppearanceRuntime'
 import { MindMapWorkspace } from './MindMapWorkspace'
@@ -18,13 +18,21 @@ export function MindMapWindow({ mapId }: { mapId: string }) {
   const registerBeforeClose = useCallback((handler: (() => Promise<boolean>) | null) => { beforeClose.current = handler }, [])
 
   useEffect(() => {
-    if (!isTauriRuntime()) return
+    if (!isTauriRuntime()) {
+      const syncAppearance = (event: StorageEvent) => {
+        if (event.key === APPEARANCE_STORAGE_KEY) setAppearance(readCachedAppearance())
+      }
+      window.addEventListener('storage', syncAppearance)
+      return () => window.removeEventListener('storage', syncAppearance)
+    }
     let cancelled = false
+    let receivedAppearance = false
     let dispose: (() => void) | undefined
     void loadSetting<unknown>('appearance').then((saved) => {
-      if (saved && !cancelled) setAppearance(normalizeAppearance(saved))
+      if (saved && !cancelled && !receivedAppearance) setAppearance(normalizeAppearance(saved))
     }).catch(() => { if (!cancelled) setStatus('外观设置读取失败') })
     void import('@tauri-apps/api/event').then(async ({ listen }) => listen<unknown>('appearance-changed', ({ payload }) => {
+      receivedAppearance = true
       setAppearance(normalizeAppearance(payload))
     })).then((unlisten) => { if (cancelled) unlisten(); else dispose = unlisten }).catch(() => {
       if (!cancelled) setStatus('跨窗口外观同步不可用')
@@ -83,7 +91,7 @@ export function MindMapWindow({ mapId }: { mapId: string }) {
         <button className="window-close-button" aria-label="关闭导图窗口" title="关闭导图窗口" onClick={() => void close()}><X size={16} /></button>
       </div>
     </header>
-    <MindMapWorkspace standaloneId={mapId} theme={resolvedTheme} onStatusChange={setStatus} onBeforeLeaveReady={registerBeforeClose} />
+    <MindMapWorkspace standaloneId={mapId} theme={resolvedTheme} template={appearance.mindMapTemplate} onStatusChange={setStatus} onBeforeLeaveReady={registerBeforeClose} />
     <WindowResizeEdges onError={() => setStatus('窗口缩放失败')} />
   </main>
 }
