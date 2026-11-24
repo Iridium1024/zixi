@@ -90,7 +90,7 @@ export const MindMapCanvas = forwardRef<MindMapCanvasHandle, Props>(function Min
       let frame = 0
       let searchNeedsUpdate = false
       const decorateNodes = () => {
-        decorateMindMapTopics(current, search.isFolded, current.el.dataset.template === 'classic')
+        decorateMindMapTopics(current, search.isFolded)
         search.paintMatch()
         current.linkDiv()
       }

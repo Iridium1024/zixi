@@ -16,30 +16,27 @@ function measureWrappedTopics(mind: MindElixir, topics: Topic[]) {
   return wraps
 }
 
-export function decorateMindMapTopics(mind: MindElixir, isFolded: (node: NodeObj) => boolean, classic: boolean) {
+export function decorateMindMapTopics(mind: MindElixir, isFolded: (node: NodeObj) => boolean) {
   const topics = Array.from(mind.nodes.querySelectorAll<Topic>('me-tpc'))
   mind.nodes.classList.toggle('zixi-root-folded', isFolded(mind.nodeData))
-  const wraps = classic ? [] : measureWrappedTopics(mind, topics)
+  const wraps = measureWrappedTopics(mind, topics)
 
   for (const [index, topic] of topics.entries()) {
     const node = topic.nodeObj
     const hasChildren = Boolean(node.children?.length)
     const folded = isFolded(node)
-    const wrapsText = classic || wraps[index]
+    const wrapsText = wraps[index]
     topic.toggleAttribute('data-zixi-text-folded', wrapsText && folded)
     topic.toggleAttribute('data-zixi-branch-fold', !wrapsText && hasChildren)
     topic.title = wrapsText && folded ? node.topic : ''
 
     let label = topic.querySelector<HTMLElement>(':scope > .zixi-node-label')
-    let button = (label ?? topic).querySelector<HTMLButtonElement>(':scope > .zixi-node-fold')
+    let button = label?.querySelector<HTMLButtonElement>(':scope > .zixi-node-fold')
     if (!wrapsText && !hasChildren) {
       button?.remove()
       continue
     }
-    if (classic && label) {
-      label.replaceWith(...label.childNodes)
-      label = null
-    } else if (!classic && !label) {
+    if (!label) {
       label = document.createElement('span')
       label.className = 'zixi-node-label'
       const text = topic.text
@@ -52,10 +49,8 @@ export function decorateMindMapTopics(mind: MindElixir, isFolded: (node: NodeObj
       button = document.createElement('button')
       button.type = 'button'
       button.className = 'zixi-node-fold'
+      label.appendChild(button)
     }
-    const controls = label ?? topic
-    if (button.parentElement !== controls) controls.appendChild(button)
-    button.textContent = classic ? folded ? '▸' : '▾' : ''
     const action = folded ? '展开' : '折叠'
     button.title = `${action}此节点`
     button.setAttribute('aria-label', `${button.title}：${node.topic}`)

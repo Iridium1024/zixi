@@ -67,15 +67,12 @@ function drawChildren(svg: DocumentFragment, parent: BranchNode, children: Branc
   const endpoints = children.map((child) => {
     const x = side === 1 ? child.left : child.right
     const endX = side === 1 ? child.right : child.left
-    return {
-      x, y: child.anchor, tail: topLevel ? '' : ` H ${endX}`,
-      color: child.topic.nodeObj.branchColor || (topLevel ? child.topic.style.borderColor : color) || color,
-    }
+    return { x, y: child.anchor, tail: topLevel ? '' : ` H ${endX}` }
   })
   if (endpoints.length === 1) {
     const [end] = endpoints
     const segment = parent.topic.nodeObj.children?.length === 1 ? `H ${end.x}` : `L ${end.x} ${end.y}`
-    appendPath(svg, `M ${startX} ${startY} ${segment}${end.tail}`, end.color, width)
+    appendPath(svg, `M ${startX} ${startY} ${segment}${end.tail}`, color, width)
     return
   }
 
@@ -90,7 +87,7 @@ function drawChildren(svg: DocumentFragment, parent: BranchNode, children: Branc
   appendPath(svg, `M ${startX} ${startY} H ${forkX} M ${forkX} ${top} V ${bottom}`, color, width)
   for (const fork of forks) {
     const curve = fork.radius ? ` Q ${forkX} ${fork.y} ${forkX + side * fork.radius} ${fork.y}` : ''
-    appendPath(svg, `M ${forkX} ${fork.startY}${curve} H ${fork.x}${fork.tail}`, fork.color, width)
+    appendPath(svg, `M ${forkX} ${fork.startY}${curve} H ${fork.x}${fork.tail}`, color, width)
   }
 }
 
@@ -125,7 +122,8 @@ export function drawMindMapBranches(mind: MindElixir) {
       if (child.topic.closest('me-main.lhs')) left.push(child)
       else right.push(child)
     }
-    const rootColor = mind.theme.cssVar['--root-bgcolor']
+    const rootBackground = getComputedStyle(root.topic).backgroundColor
+    const rootColor = rootBackground === 'rgba(0, 0, 0, 0)' ? mind.theme.cssVar['--root-bgcolor'] : rootBackground
     for (const { side, children } of [{ side: -1 as const, children: left }, { side: 1 as const, children: right }]) {
       drawChildren(svg, root, children, side, rootColor, true)
       const pending = children.map((node) => ({ node, color: node.topic.style.borderColor || rootColor }))

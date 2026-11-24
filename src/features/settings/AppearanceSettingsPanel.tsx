@@ -300,8 +300,8 @@ export function AppearanceSettingsPanel({
           <label className="setting-row">
             <span><strong>导图样式</strong><small>应用于所有导图，已打开的独立窗口会立即更新</small></span>
             <SelectControl aria-label="导图样式" value={appearance.mindMapTemplate} onChange={(event) => update({ mindMapTemplate: event.target.value === 'classic' ? 'classic' : 'current' })}>
-              <option value="current">当前样式 · 共用分支线</option>
-              <option value="classic">原版样式 · 曲线分支</option>
+              <option value="current">共用分支线</option>
+              <option value="classic">曲线分支</option>
             </SelectControl>
           </label>
         </div>
